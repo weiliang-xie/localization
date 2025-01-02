@@ -52,7 +52,7 @@ struct PredictionOutcome {
 
   //xwl
   std::vector<std::pair<int, int>> data_size;   //各层的cont_views_的size和
-  std::pair<int, int> all_cont_data_size;       //cont_views_的size总和
+  std::pair<int, int> all_lecd_data_size;       //lecd_views_的size总和
 };
 
 
@@ -314,13 +314,13 @@ public:
   }
 
   //建立并返回一个抽象结构 的结构体指针
-  std::shared_ptr<ContourManager> getCurrContourManager(const ContourManagerConfig &config) const {
+  std::shared_ptr<LECDManager> getCurrLECDManager(const LECDManagerConfig &config) const {
     // assumption:
-    // 1. The returned cont_mng is matched to the data in `laser_info_`
-    // 2. The int index of every cont_mng is matched to the index of every item of `laser_info`
-    //   (so that we can use cont_mng as input to index gt 3d poses in the "recorder" below)
+    // 1. The returned lecd_mng is matched to the data in `laser_info_`
+    // 2. The int index of every lecd_mng is matched to the index of every item of `laser_info`
+    //   (so that we can use lecd_mng as input to index gt 3d poses in the "recorder" below)
 
-    std::shared_ptr<ContourManager> cmng_ptr(new ContourManager(config, laser_info_[p_lidar_curr].seq));
+    std::shared_ptr<LECDManager> cmng_ptr(new LECDManager(config, laser_info_[p_lidar_curr].seq));
     pcl::PointCloud<pcl::PointXYZ>::ConstPtr out_ptr = readKITTIPointCloudBin<pcl::PointXYZ>(
         laser_info_[p_lidar_curr].fpath); //读取对应bin中的点云
 
@@ -328,7 +328,7 @@ public:
     str_id = "assigned_id_" + std::string(8 - str_id.length(), '0') + str_id;   //拼接
 
     cmng_ptr->makeBEV<pcl::PointXYZ>(out_ptr, str_id);      //制作bev并保存
-    cmng_ptr->makeContoursRecurs();                         //contour 以每一层中每一个anchor为单元 生成key和bci并保存
+    cmng_ptr->makeLECDsRecurs();                         //lecd 以每一层中每一个anchor为单元 生成key和bci并保存
     return cmng_ptr;
   }
 
@@ -339,8 +339,8 @@ public:
   /// \param cand_mng 匹配帧的描述符指针
   /// \param T_est_delta_2d 最终的候选位姿
   PredictionOutcome
-  addPrediction(const std::shared_ptr<const ContourManager> &q_mng, double est_corr,
-                const std::shared_ptr<const ContourManager> &cand_mng = nullptr,
+  addPrediction(const std::shared_ptr<const LECDManager> &q_mng, double est_corr,
+                const std::shared_ptr<const LECDManager> &cand_mng = nullptr,
                 const Eigen::Isometry2d &T_est_delta_2d = Eigen::Isometry2d::Identity()) {
     int id_tgt = q_mng->getIntID();  //// q: src, cand: tgt 这个注释有问题吧
     int addr_tgt = lookupNN<int>(id_tgt, assigned_seqs_, 0);
@@ -400,21 +400,21 @@ public:
         curr_res.tfpn = PredictionOutcome::TN;    //gt not loop est not loop
     }
 
-    //xwl cont_views_ 数据大小计算
+    //xwl lecd_views_ 数据大小计算
     auto q_config_ = q_mng->getConfig();
-    curr_res.all_cont_data_size = {0, 0};
+    curr_res.all_lecd_data_size = {0, 0};
     for(int i = 0; i < q_config_.lv_grads_.size(); i++)
     {
-      auto q_levelcont_ = q_mng->getLevContours(i);
-      if(q_levelcont_.empty())
+      auto q_levellecd_ = q_mng->getLevLECDs(i);
+      if(q_levellecd_.empty())
         break;
-      int level_cont_size = (q_levelcont_.size()) * q_mng->getSize(i);
-      int level_cont_size_test = q_levelcont_.size()  * q_mng->getTestSize(i);
-      curr_res.data_size.emplace_back(std::pair<int,int>{level_cont_size,level_cont_size_test});
-      curr_res.all_cont_data_size.first += level_cont_size;
-      curr_res.all_cont_data_size.second += level_cont_size_test;
+      int level_lecd_size = (q_levellecd_.size()) * q_mng->getSize(i);
+      int level_lecd_size_test = q_levellecd_.size()  * q_mng->getTestSize(i);
+      curr_res.data_size.emplace_back(std::pair<int,int>{level_lecd_size,level_lecd_size_test});
+      curr_res.all_lecd_data_size.first += level_lecd_size;
+      curr_res.all_lecd_data_size.second += level_lecd_size_test;
     }
-    printf(" Datasize: %d Test datasize: %d\n", curr_res.all_cont_data_size.first, curr_res.all_cont_data_size.second);
+    printf(" Datasize: %d Test datasize: %d\n", curr_res.all_lecd_data_size.first, curr_res.all_lecd_data_size.second);
 
     //跑数据处理
     if(curr_res.tfpn == PredictionOutcome::TP || curr_res.tfpn == PredictionOutcome::FP)
@@ -485,14 +485,14 @@ public:
     printf("Outcome saved successfully.\n");
 
     //打印数据总量
-    int dataset_cont_size = 0;
-    int dataset_cont_size_test = 0;
+    int dataset_lecd_size = 0;
+    int dataset_lecd_size_test = 0;
     for (const auto &rec: pred_records)
     {
-      dataset_cont_size += rec.all_cont_data_size.first;
-      dataset_cont_size_test += rec.all_cont_data_size.second;
+      dataset_lecd_size += rec.all_lecd_data_size.first;
+      dataset_lecd_size_test += rec.all_lecd_data_size.second;
     }
-    printf(" Datasize: %d Test datasize: %d\n", dataset_cont_size, dataset_cont_size_test);
+    printf(" Datasize: %d Test datasize: %d\n", dataset_lecd_size, dataset_lecd_size_test);
 
   }
 

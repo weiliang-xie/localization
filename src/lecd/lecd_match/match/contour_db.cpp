@@ -5,7 +5,7 @@
 #include "contour_db.h"
 
 // outdated
-//void ContourDB::queryKNN(const ContourManager &q_cont, std::vector<std::shared_ptr<const ContourManager>> &cand_ptrs,
+//void LECDDB::queryKNN(const LECDManager &q_cont, std::vector<std::shared_ptr<const LECDManager>> &cand_ptrs,
 //                         std::vector<KeyFloatType> &dist_sq) const {
 //  cand_ptrs.clear();
 //  dist_sq.clear();
@@ -64,9 +64,6 @@
 /// \param idx_t1  处理后为0~4 与点云帧序号有关
 /// \param curr_ts 当前时间戳
 void LayerDB::rebuild(int idx_t1, double curr_ts) {
-//    int idx_t1 = std::abs(seed) % (2 * (max_num_backets_ - 2));
-//    if (idx_t1 > (max_num_backets_ - 2))
-//      idx_t1 = 2 * (max_num_backets_ - 2) - idx_t1;
 
   DCHECK_LT(idx_t1, buckets_.size() - 1);
   TreeBucket &tr1 = buckets_[idx_t1], &tr2 = buckets_[idx_t1 + 1];
@@ -87,11 +84,6 @@ void LayerDB::rebuild(int idx_t1, double curr_ts) {
     tr2.popBufferMax(curr_ts);    //压入并重建
     return;
   }
-  // else, balance two trees
-  // 1. find new boundary/pivot.
-  // q: How to find the elements to move in O(n)
-  //  a1: flatten and rebuild?
-  //  a2: sort the larger one, and copy parts to the smaller one.
 
   if (diff_ratio < 0.5 * imba_diff_ratio_) {    //差异足够小，直接传入数据
     if (pb1) tr1.popBufferMax(curr_ts);
@@ -102,7 +94,6 @@ void LayerDB::rebuild(int idx_t1, double curr_ts) {
   printf(" (m->)"); // merging here
   //TODO 这段可以优化
   if (sz1 > sz2) {
-//      DCHECK_GE(sz1, min_elem_split_);
     //选择三个阈值的依据是保证在这个区间内任意分割都能达到上面的差异阈值要求 这三个阈值组成的区间是可以分割的区间，从中间出发往两边寻找合适的分割点，使得两个bucket的差异满足要求
     int to_move_max = int((sz1 - sz2 + imba_diff_ratio_ * sz2) / (2 - imba_diff_ratio_));
     int to_move_mid = int((sz1 - sz2) / 2.0);
@@ -193,7 +184,6 @@ void LayerDB::rebuild(int idx_t1, double curr_ts) {
 
 
   } else { // if tree 1 is shorter and move elements from tree 2 to tree 1:
-//      DCHECK_GE(sz2, min_elem_split_);
     int to_move_max = int((sz2 - sz1 + imba_diff_ratio_ * sz1) / (2 - imba_diff_ratio_));
     int to_move_mid = int((sz2 - sz1) / 2.0);
     int to_move_min = std::max(0, int((sz2 - sz1 - imba_diff_ratio_ * sz2) / (2 - imba_diff_ratio_)));
@@ -300,14 +290,6 @@ void LayerDB::rebuild(int idx_t1, double curr_ts) {
     DCHECK_LT(dat.pt(bucket_chann_), tr2.buc_end_);
     DCHECK_GE(dat.pt(bucket_chann_), tr2.buc_beg_);
   }
-
-  // q: what if all the keys have the same bucket element?
-  //  a: calc the number allowed for removal in the larger one, if moving the block will cross the line (another
-  //  imba), then do not move.
-
-  // 2. move across boundary
-
-  // 3. rebuild trees  按时间顺序排序buffer_
   std::sort(tr1.buffer_.begin(), tr1.buffer_.end(), [&](const auto &a, const auto &b) {
     return a.ts < b.ts;
   });
@@ -341,8 +323,6 @@ void LayerDB::layerKNNSearch(const RetrievalKey &q_key, const int k_top, const K
 
   KeyFloatType max_dist_sq_run = max_dist_sq;
 
-
-//    std::vector<std::pair<size_t, KeyFloatType>> res_pairs;
   res_pairs.clear();  // all pairs are meaningful, which may fall short of k_top.
 
   for (int i = 0; i < max_num_backets_; i++) {
@@ -407,9 +387,6 @@ void TreeBucket::knnSearch(const int num_res, std::vector<IndexOfKey> &ret_idx, 
   ret_idx.reserve(num_res);     //分配内存
 
   std::vector<size_t> idx(num_res, 0);
-
-//    nanoflann::KNNResultSet<KeyFloatType> resultSet(num_res);  // official knn search
-//    resultSet.init(&idx[0], &out_dist_sq[0]);
 
   MyKNNResSet<KeyFloatType> resultSet(num_res);   // knn with max dist
   resultSet.init(&idx[0], &out_dist_sq[0], max_dist_sq);    //输入最大的查询的距离（限制？）

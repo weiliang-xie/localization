@@ -27,11 +27,11 @@ SequentialTimeProfiler stp;
 class BatchBinSpinner : public BaseROSSpinner {
 public:
   // --- Added members for evaluation and LC module running ---
-  std::unique_ptr<ContourDB> ptr_contour_db;          //描述符数据库指针
+  std::unique_ptr<LECDDB> ptr_lecd_db;          //描述符数据库指针
   std::unique_ptr<ContLCDEvaluator> ptr_evaluator;    //评价部分指针
 
-  ContourManagerConfig cm_config;
-  ContourDBConfig db_config;
+  LECDManagerConfig cm_config;
+  LECDDBConfig db_config;
 
   CandidateScoreEnsemble thres_lb_, thres_ub_;  // check thresholds variable query parameters 查询阈值 分上界下界
 
@@ -59,20 +59,20 @@ public:
     yl.loadOneConfig({"correlation_thres"}, corr_thres);
     ptr_evaluator = std::make_unique<ContLCDEvaluator>(fpath_sens_gt_pose, fpath_lidar_bins, corr_thres);   //导入kitti数据，处理
 
-    yl.loadOneConfig({"ContourDBConfig", "nnk_"}, db_config.nnk_);
-    yl.loadOneConfig({"ContourDBConfig", "max_fine_opt_"}, db_config.max_fine_opt_);
-    yl.loadSeqConfig({"ContourDBConfig", "q_levels_"}, db_config.q_levels_);
+    yl.loadOneConfig({"LECDDBConfig", "nnk_"}, db_config.nnk_);
+    yl.loadOneConfig({"LECDDBConfig", "max_fine_opt_"}, db_config.max_fine_opt_);
+    yl.loadSeqConfig({"LECDDBConfig", "q_levels_"}, db_config.q_levels_);
 
-    yl.loadOneConfig({"ContourDBConfig", "TreeBucketConfig", "max_elapse_"}, db_config.tb_cfg_.max_elapse_);
-    yl.loadOneConfig({"ContourDBConfig", "TreeBucketConfig", "min_elapse_"}, db_config.tb_cfg_.min_elapse_);
+    yl.loadOneConfig({"LECDDBConfig", "TreeBucketConfig", "max_elapse_"}, db_config.tb_cfg_.max_elapse_);
+    yl.loadOneConfig({"LECDDBConfig", "TreeBucketConfig", "min_elapse_"}, db_config.tb_cfg_.min_elapse_);
 
-    yl.loadOneConfig({"ContourDBConfig", "ContourSimThresConfig", "ta_cell_cnt"}, db_config.cont_sim_cfg_.ta_cell_cnt);
-    yl.loadOneConfig({"ContourDBConfig", "ContourSimThresConfig", "tp_cell_cnt"}, db_config.cont_sim_cfg_.tp_cell_cnt);
-    yl.loadOneConfig({"ContourDBConfig", "ContourSimThresConfig", "tp_eigval"}, db_config.cont_sim_cfg_.tp_eigval);
-    yl.loadOneConfig({"ContourDBConfig", "ContourSimThresConfig", "ta_h_bar"}, db_config.cont_sim_cfg_.ta_h_bar);
-    yl.loadOneConfig({"ContourDBConfig", "ContourSimThresConfig", "ta_rcom"}, db_config.cont_sim_cfg_.ta_rcom);
-    yl.loadOneConfig({"ContourDBConfig", "ContourSimThresConfig", "tp_rcom"}, db_config.cont_sim_cfg_.tp_rcom);
-    ptr_contour_db = std::make_unique<ContourDB>(db_config);
+    yl.loadOneConfig({"LECDDBConfig", "LECDSimThresConfig", "ta_cell_cnt"}, db_config.lecd_sim_cfg_.ta_cell_cnt);
+    yl.loadOneConfig({"LECDDBConfig", "LECDSimThresConfig", "tp_cell_cnt"}, db_config.lecd_sim_cfg_.tp_cell_cnt);
+    yl.loadOneConfig({"LECDDBConfig", "LECDSimThresConfig", "tp_eigval"}, db_config.lecd_sim_cfg_.tp_eigval);
+    yl.loadOneConfig({"LECDDBConfig", "LECDSimThresConfig", "ta_h_bar"}, db_config.lecd_sim_cfg_.ta_h_bar);
+    yl.loadOneConfig({"LECDDBConfig", "LECDSimThresConfig", "ta_rcom"}, db_config.lecd_sim_cfg_.ta_rcom);
+    yl.loadOneConfig({"LECDDBConfig", "LECDSimThresConfig", "tp_rcom"}, db_config.lecd_sim_cfg_.tp_rcom);
+    ptr_lecd_db = std::make_unique<LECDDB>(db_config);
 
     yl.loadOneConfig({"thres_lb_", "i_ovlp_sum"}, thres_lb_.sim_constell.i_ovlp_sum);
     yl.loadOneConfig({"thres_lb_", "i_ovlp_max_one"}, thres_lb_.sim_constell.i_ovlp_max_one);
@@ -92,18 +92,18 @@ public:
     yl.loadOneConfig({"thres_ub_", "area_perc"}, thres_ub_.sim_post.area_perc);
     yl.loadOneConfig({"thres_ub_", "neg_est_dist"}, thres_ub_.sim_post.neg_est_dist);
 
-    yl.loadSeqConfig({"ContourManagerConfig", "lv_grads_"}, cm_config.lv_grads_);
-    yl.loadOneConfig({"ContourManagerConfig", "reso_row_"}, cm_config.reso_row_);
-    yl.loadOneConfig({"ContourManagerConfig", "reso_col_"}, cm_config.reso_col_);
-    yl.loadOneConfig({"ContourManagerConfig", "n_row_"}, cm_config.n_row_);
-    yl.loadOneConfig({"ContourManagerConfig", "n_col_"}, cm_config.n_col_);
-    yl.loadOneConfig({"ContourManagerConfig", "lidar_height_"}, cm_config.lidar_height_);
-    yl.loadOneConfig({"ContourManagerConfig", "blind_sq_"}, cm_config.blind_sq_);
-    yl.loadOneConfig({"ContourManagerConfig", "min_cont_key_cnt_"}, cm_config.min_cont_key_cnt_);
-    yl.loadOneConfig({"ContourManagerConfig", "min_cont_cell_cnt_"}, cm_config.min_cont_cell_cnt_);
-    yl.loadOneConfig({"ContourManagerConfig", "piv_firsts_"}, cm_config.piv_firsts_);
-    yl.loadOneConfig({"ContourManagerConfig", "dist_firsts_"}, cm_config.dist_firsts_);
-    yl.loadOneConfig({"ContourManagerConfig", "roi_radius_"}, cm_config.roi_radius_);
+    yl.loadSeqConfig({"LECDManagerConfig", "lv_grads_"}, cm_config.lv_grads_);
+    yl.loadOneConfig({"LECDManagerConfig", "reso_row_"}, cm_config.reso_row_);
+    yl.loadOneConfig({"LECDManagerConfig", "reso_col_"}, cm_config.reso_col_);
+    yl.loadOneConfig({"LECDManagerConfig", "n_row_"}, cm_config.n_row_);
+    yl.loadOneConfig({"LECDManagerConfig", "n_col_"}, cm_config.n_col_);
+    yl.loadOneConfig({"LECDManagerConfig", "lidar_height_"}, cm_config.lidar_height_);
+    yl.loadOneConfig({"LECDManagerConfig", "blind_sq_"}, cm_config.blind_sq_);
+    yl.loadOneConfig({"LECDManagerConfig", "min_lecd_key_cnt_"}, cm_config.min_lecd_key_cnt_);
+    yl.loadOneConfig({"LECDManagerConfig", "min_lecd_cell_cnt_"}, cm_config.min_lecd_cell_cnt_);
+    yl.loadOneConfig({"LECDManagerConfig", "piv_firsts_"}, cm_config.piv_firsts_);
+    yl.loadOneConfig({"LECDManagerConfig", "dist_firsts_"}, cm_config.dist_firsts_);
+    yl.loadOneConfig({"LECDManagerConfig", "roi_radius_"}, cm_config.roi_radius_);
 
     yl.loadOneConfig({"fpath_outcome_sav"}, sav_path);
 
@@ -115,7 +115,7 @@ public:
   /// \return 0: normal. <0: external signal. 1: load failed、
   //这个函数包含了一次整个位置识别 匹配工作 是主要工作函数
   int spinOnce(int &outer_cnt) {
-    // CHECK(ptr_contour_db && ptr_evaluator);
+    // CHECK(ptr_lecd_db && ptr_evaluator);
     mtx_status.lock();
     if (stat_terminated) {
       printf("Spin terminated by external signal.\n");
@@ -142,8 +142,8 @@ public:
 
     stp.lap();    //帧计数
     stp.start();  
-    // std::shared_ptr<ContourManager> ptr_cm_tgt = ptr_evaluator->getCurrContourManager(cm_config);   //定义查询描述符指针，制作描述符,返回描述符指针
-    std::shared_ptr<ContourManager> ptr_cm_tgt = nullptr;      //TODO 在这里替换上获取描述符的函数
+    // std::shared_ptr<LECDManager> ptr_cm_tgt = ptr_evaluator->getCurrLECDManager(cm_config);   //定义查询描述符指针，制作描述符,返回描述符指针
+    std::shared_ptr<LECDManager> ptr_cm_tgt = nullptr;      //TODO 在这里替换上获取描述符的函数
     // stp.record("make bev");   //记录制作描述符的时间
     const auto laser_info_tgt = ptr_evaluator->getCurrScanInfo();
     // printf("\n===\nLoaded: assigned seq: %d, bin path: %s\n", laser_info_tgt.seq, laser_info_tgt.fpath.c_str());
@@ -173,9 +173,9 @@ public:
 #if SAVE_MID_FILE
     clk.tic();
     for (int i = 0; i < cm_config.lv_grads_.size(); i++) {
-      std::string f_name = PROJ_DIR + "/results/layer_img/contour_" + "lv" + std::to_string(i) + "_" +
+      std::string f_name = PROJ_DIR + "/results/layer_img/lecd_" + "lv" + std::to_string(i) + "_" +
                            ptr_cm_tgt->getStrID() + ".png";   // TODO: what should be the str name of scans?
-      ptr_cm_tgt->saveContourImage(f_name, i);
+      ptr_cm_tgt->saveLECDImage(f_name, i);
     }
     std::cout << "Time save layers: " << clk.toctic() << std::endl;
 #endif
@@ -184,12 +184,12 @@ public:
     // 2. query
     std::vector<std::pair<int, int>> new_lc_pairs;
     std::vector<bool> new_lc_tfp;
-    std::vector<std::shared_ptr<const ContourManager>> ptr_cands;
+    std::vector<std::shared_ptr<const LECDManager>> ptr_cands;
     std::vector<double> cand_corr;
     std::vector<Eigen::Isometry2d> bev_tfs;
 
     clk.tic();
-    int has_cand_flag = ptr_contour_db->queryRangedKNN(ptr_cm_tgt, thres_lb_, thres_ub_, ptr_cands, cand_corr, bev_tfs);  //查询检索获取候选
+    int has_cand_flag = ptr_lecd_db->queryRangedKNN(ptr_cm_tgt, thres_lb_, thres_ub_, ptr_cands, cand_corr, bev_tfs);  //查询检索获取候选
     // printf("%lu Candidates in %7.5fs: \n", ptr_cands.size(), clk.toc());
 
 //    if(laser_info_tgt.seq == 894){
@@ -223,7 +223,7 @@ public:
         std::string f_name =
             PROJ_DIR + "/results/match_comp_img/lc_" + ptr_cm_tgt->getStrID() + "-" + ptr_cands[0]->getStrID() +
             ".png";
-        ContourManager::saveMatchedPairImg(f_name, *ptr_cm_tgt, *ptr_cands[0]);   //保存文件
+        LECDManager::saveMatchedPairImg(f_name, *ptr_cm_tgt, *ptr_cands[0]);   //保存文件
         printf("Image saved: %s-%s\n", ptr_cm_tgt->getStrID().c_str(), ptr_cands[0]->getStrID().c_str());
 #endif
       }
@@ -259,10 +259,10 @@ public:
     stp.start();
     // 3. update database
     // add scan
-    ptr_contour_db->addScan(ptr_cm_tgt, laser_info_tgt.ts);     //保存描述符数据 这里没有隔断相邻的点云帧吗？
+    ptr_lecd_db->addScan(ptr_cm_tgt, laser_info_tgt.ts);     //保存描述符数据 这里没有隔断相邻的点云帧吗？
     // balance
     clk.tic();
-    ptr_contour_db->pushAndBalance(laser_info_tgt.seq, laser_info_tgt.ts);    //放入检索树
+    ptr_lecd_db->pushAndBalance(laser_info_tgt.seq, laser_info_tgt.ts);    //放入检索树
     stp.record("Update database");
     printf("Rebalance tree cost: %7.5f\n", clk.toc());
 

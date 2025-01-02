@@ -19,12 +19,11 @@ struct GMMOptConfig {
   double cov_dilate_scale_ = 2.0;
 };
 
-
 struct GMMPair {
   struct GMMEllipse {
     Eigen::Matrix<double, 2, 2> cov_;     //椭圆协方差
     Eigen::Matrix<double, 2, 1> mu_;      //椭圆中心  = 在初始化时传入的pos_mean_
-    double w_;                            //contour占的网格数
+    double w_;                            //lecd占的网格数
     double eccen_;                            //位姿估计使用的权重
 
     GMMEllipse(Eigen::Matrix<double, 2, 2> cov, Eigen::Matrix<double, 2, 1> mu, double w, double eccen) : cov_(std::move(cov)),
@@ -36,12 +35,9 @@ struct GMMPair {
   // layers of useful data set at the time of init
   std::vector<std::vector<GMMEllipse>> ellipses_src, ellipses_tgt;  //各高斯混合层的 网格和占比前95%的描述符
   std::vector<std::vector<std::pair<int, int>>> selected_pair_idx_;  // selected {src: tgt} pairs for f.g L2 distance calculation 经过初始位姿差值过滤的符合条件的匹配对
-  // std::vector<std::vector<std::pair<int, int>>> test_selected_pair_idx_;  // selected {src: tgt} pairs for f.g L2 distance calculation 没有自适应调整的 经过初始位姿差值过滤的符合条件的匹配对
   std::vector<int> src_cell_cnts_, tgt_cell_cnts_;    //各高斯混合层的描述符网格总和
   int total_cells_src_ = 0, total_cells_tgt_ = 0;     //所有高斯混合层的描述网格总和
   double auto_corr_src_{}, auto_corr_tgt_{};  // without normalization by cell count  所有高斯混合层内的椭圆对的自相关数
-  // double ae_auto_corr_src_{}, ae_auto_corr_tgt_{};  // without normalization by cell count  没有面积作为权重的 所有高斯混合层内的椭圆对的自相关数
-  // double test_auto_corr_src_{}, test_auto_corr_tgt_{};  // without normalization by cell count  没有自适应调整的 所有高斯混合层内的椭圆对的自相关数
   const double scale_;    //cov_dilate_scale_ 2.0 //?用于计算新的协方差矩阵，为什么要加这个权重
   std::vector<std::vector<float>> max_majax_src, max_majax_tgt;     //椭圆第二特征值
   std::vector<int> out_gmm_level;
@@ -51,38 +47,25 @@ struct GMMPair {
   /// \param cm_src 候选帧描述符指针
   /// \param cm_tgt 查询帧描述符指针
   /// \param T_init should be the best possible, because we use it to simplify weak correlation pairs. 两帧之间的最优初始相对位姿值
-  GMMPair(const ContourManager &cm_src, const ContourManager &cm_tgt, const GMMOptConfig &config,
+  GMMPair(const LECDManager &cm_src, const LECDManager &cm_tgt, const GMMOptConfig &config,
           const Eigen::Isometry2d &T_init) : scale_(config.cov_dilate_scale_) {
     DCHECK_LE(config.levels_.size(), cm_src.getConfig().lv_grads_.size());
-
-    // collect eigen values to isolate insignificant correlations
-    // std::vector<std::vector<float>> max_majax_src, max_majax_tgt;     //椭圆第二特征值
 
     //遍历高斯混合层 自调整删除高斯层
     int last_src_cnt_full = 0, last_tgt_cnt_full = 0, delete_level_cnt = 0;
     for (const auto lev: config.levels_) {
       int cnt_src_run = 0, cnt_src_full = cm_src.getLevTotalPix(lev);
       int cnt_tgt_run = 0, cnt_tgt_full = cm_tgt.getLevTotalPix(lev);
-      // if(cnt_src_full < last_src_cnt_full / 8 || cnt_tgt_full < last_tgt_cnt_full / 8)
-      // {
-      //   delete_level_cnt++;
-      //   // std::cout << "---------delete level " << lev << "----------"<< std::endl;
-      //   out_gmm_level.emplace_back(lev);
-      //   // continue;
-      // }
 
-      // last_src_cnt_full = cnt_src_full;
-      // last_tgt_cnt_full = cnt_tgt_full;
 
       ellipses_src.emplace_back();  //填入空元素，空的GMMEllipse容器
       ellipses_tgt.emplace_back();
       max_majax_src.emplace_back();
       max_majax_tgt.emplace_back();
       selected_pair_idx_.emplace_back();
-      // test_selected_pair_idx_.emplace_back();
 
-      const auto &src_layer = cm_src.getLevContours(lev);   //高斯分布混合不要最低的高斯分布层
-      const auto &tgt_layer = cm_tgt.getLevContours(lev);
+      const auto &src_layer = cm_src.getLevLECDs(lev);   //高斯分布混合不要最低的高斯分布层
+      const auto &tgt_layer = cm_tgt.getLevLECDs(lev);
 
       //存入src tgt网格占比前95%的描述符
       for (const auto &view_ptr: src_layer) {
@@ -113,163 +96,41 @@ struct GMMPair {
     double src_max_three;
     double avg_gmm_ellipses_cnt = 0;
     for (int li = 0; li < ellipses_src.size(); li++) { 
-      // bool jump_level = 0;
-      // for(auto out_level : out_gmm_level)
-      // {
-      //   // std::cout << "-----------out level: " << out_level << " current level: " << config.levels_[li] << std::endl; 
-      //   if(out_level == config.levels_[li])
-      //   {
-      //     jump_level = 1;
-      //     break;
-      //   }
-      // }
-      // if (jump_level == 1)
-      // {
-      //   // std::cout << "---------delete level " << config.levels_[li] << "---------- jump best selected pair " << std::endl;
-      //   // continue;
-      // }  
 
       for (int si = 0; si < ellipses_src[li].size(); si++) {
         int index_three = 0;
         for (int ti = 0; ti < ellipses_tgt[li].size(); ti++) {
           Eigen::Matrix<double, 2, 1> delta_mu = T_init * ellipses_src[li][si].mu_ - ellipses_tgt[li][ti].mu_;    //计算初始位姿下的两帧两点的偏差向量
-          // //加权阈值
-          // double auto_dis_w_ = 0;
-          // auto_dis_w_ = 1.5 * (ellipses_tgt[li][si].w_ < ellipses_tgt[li][ti].w_ ? ellipses_tgt[li][si].w_ : ellipses_tgt[li][ti].w_) / (ellipses_tgt[li][si].w_ > ellipses_tgt[li][ti].w_ ? ellipses_tgt[li][si].w_ : ellipses_tgt[li][ti].w_);
-          // auto_dis_w_ += 1.5 * (1.0 - abs(ellipses_src[li][si].eccen_ - ellipses_src[li][ti].eccen_));
-          // auto_dis_w_ += 1.0;
-          // if (delta_mu.norm() < auto_dis_w_ * (max_majax_src[li][si] + max_majax_tgt[li][ti])) {  // close enough to correlate  距离相差两帧第二特征值的和的三倍以上则不考虑
+
           if (delta_mu.norm() < 2.0 * (max_majax_src[li][si] + max_majax_tgt[li][ti])) {  // close enough to correlate  距离相差两帧第二特征值的和的三倍以上则不考虑
-            // if(jump_level != 1)
-              // test_selected_pair_idx_[li].emplace_back(si, ti);
             selected_pair_idx_[li].emplace_back(si, ti);
             total_pairs++;
           }
         }
       }
 
-      //参与的平均椭圆数量
-      // avg_gmm_ellipses_cnt += double(ellipses_src[li].size()) + double(ellipses_tgt[li].size());
-      // avg_gmm_ellipses_cnt += double(ellipses_src[li].size());
     }
-// #if HUMAN_READABLE
-    // double all_diff_cnt = 0;
-    // double avg_diff_eccen = 0;
-    // std::vector<double> diff_eccen = {};
-    // std::vector<double> diff_area = {};
-    // for(int i = 0; i < selected_pair_idx_.size(); i++)
-    // {
-    //   int diff_cnt = 0;
-    //   for(int ii = 0; ii < selected_pair_idx_[i].size(); ii++)
-    //   {
-    //     if(ii == 0 || (ii >= 1 && selected_pair_idx_[i][ii].first != selected_pair_idx_[i][ii - 1].first) )
-    //     {
-    //       // std::cout << "-------TEST " << "diff cnt: " << ellipses_src[i][selected_pair_idx_[i][ii].first].w_ << std::endl;
-    //       if(diff_cnt < 2)
-    //         src_max_three += ellipses_src[i][selected_pair_idx_[i][ii].first].w_;
-    //       src_cnt_avg += ellipses_src[i][selected_pair_idx_[i][ii].first].w_;         //平均面积
-    //       diff_area.emplace_back(ellipses_src[i][selected_pair_idx_[i][ii].first].w_);
-    //       avg_diff_eccen += ellipses_src[i][selected_pair_idx_[i][ii].first].eccen_;  //平均离心率
-    //       diff_eccen.emplace_back(ellipses_src[i][selected_pair_idx_[i][ii].first].eccen_);
-    //       diff_cnt++;
-    //     }
-    //   }
-    //   all_diff_cnt += diff_cnt;
-    // }
 
-    // //离心率方差 标准差
-    // avg_diff_eccen = avg_diff_eccen/all_diff_cnt;
-    // double variance_eccen = 0;
-    // for(auto diff_eccen_ : diff_eccen)
-    // {
-    //   variance_eccen += (diff_eccen_ - avg_diff_eccen) * (diff_eccen_ - avg_diff_eccen);
-    // }
-    // variance_eccen = sqrt(variance_eccen / all_diff_cnt);
-
-    // //面积方差 标准差
-    // src_cnt_avg /= all_diff_cnt;
-    // double variance_area = 0;
-    // for(auto diff_area_ : diff_area)
-    // {
-    //   variance_area += (diff_area_ - src_cnt_avg) * (diff_area_ - src_cnt_avg);
-    // }
-    // variance_area = sqrt(variance_area / all_diff_cnt);    
-
-    // //gmm中所有椭圆的平均数量
-    // avg_gmm_ellipses_cnt /= 1.0;
-
- 
-    // std::cout << "-------TEST " << "src max three cnt precent: " << src_max_three/src_cnt_avg *100 << "%" << std::endl;
-    // std::cout << "-------TEST " << "src avg area: " << src_cnt_avg << " src variance area: " << variance_area << std::endl;
-    // std::cout << "-------TEST " << "src avg eccen: " << avg_diff_eccen << " src variance eccen: " << variance_eccen << std::endl;
-    // std::cout << "-------TEST " << "all avg gmm cnt: " << avg_gmm_ellipses_cnt << " src diff ellips cnt: " << all_diff_cnt << " ";
-    // tgt_cnt_avg /= double(total_pairs);
-
-    // printf("Total pairs of gmm ellipses: %d\n", total_pairs);
-    // std::cout << "-------TEST " << "src cnt avg: " << src_cnt_avg << " tgt cnt avg: " << tgt_cnt_avg << std::endl;
-    // std::cout << "-------TEST " << "src cnt gap: " << src_cnt_max_gap << " tgt cnt gap: " << tgt_cnt_max_gap << std::endl;
-
-// #endif
-
-    // calc auto-correlation 网格数为权重，累加各层所有椭圆对的概率密度乘积，用于计算所有高斯混合层的自相关性(相关度的分母部分)
-    // for (int li = 0; li < config.levels_.size() - delete_level_cnt; li++) {
     for (int li = 0; li < config.levels_.size(); li++) {
-      // bool jump_level = 0;
-      // for(auto out_level : out_gmm_level)
-      // {
-      //   // std::cout << "-----------out level: " << out_level << " current level: " << config.levels_[li] << std::endl; 
-      //   if(out_level == config.levels_[li])
-      //   {
-      //     jump_level = 1;
-      //     break;
-      //   }
-      // }
 
-      // if (jump_level == 1)
-      // {
-      //   // std::cout << "---------delete level " << config.levels_[li] << "---------- jump auto corr " << std::endl;
-      //   // continue;
-      // }
       for (int i = 0; i < ellipses_src[li].size(); i++) {
         for (int j = 0; j < ellipses_src[li].size(); j++) {
           Eigen::Matrix2d new_cov = scale_ * (ellipses_src[li][i].cov_ + ellipses_src[li][j].cov_);   //?为什么协方差需要相加并加权重？
           Eigen::Vector2d new_mu = ellipses_src[li][i].mu_ - ellipses_src[li][j].mu_;
-          // if(jump_level != 1)
-            // test_auto_corr_src_ += ellipses_src[li][i].w_ * ellipses_src[li][j].w_ / std::sqrt(new_cov.determinant()) *
-            //                 std::exp(-0.5 * new_mu.transpose() * new_cov.inverse() * new_mu);   //计算各个中心点在高斯混合模型下的概率
           auto_corr_src_ += ellipses_src[li][i].w_ * ellipses_src[li][j].w_ / std::sqrt(new_cov.determinant()) *
                             std::exp(-0.5 * new_mu.transpose() * new_cov.inverse() * new_mu);   //计算各个中心点在高斯混合模型下的概率
-          // no_cell_auto_corr_src_ += 1.0 / std::sqrt(new_cov.determinant()) *
-          //                   std::exp(-0.5 * new_mu.transpose() * new_cov.inverse() * new_mu);   //计算各个中心点在高斯混合模型下的概率 无权重
 
-          // double cell_cnt_w_ = (ellipses_src[li][i].w_ < ellipses_src[li][j].w_ ? ellipses_src[li][i].w_ : ellipses_src[li][j].w_) / (ellipses_src[li][i].w_ > ellipses_src[li][j].w_ ? ellipses_src[li][i].w_ : ellipses_src[li][j].w_);
-          // double eccen_w_ = 1.0 - abs(ellipses_src[li][i].eccen_ - ellipses_src[li][j].eccen_);
-          // // std::cout << "-------TEST  auto corr src" << "cell cnt weight: " << cell_cnt_w_ << " eccen weight: " << eccen_w_ << std::endl;
-          // ae_auto_corr_src_ += cell_cnt_w_ * eccen_w_ * 1.0 / std::sqrt(new_cov.determinant()) *
-          //                   std::exp(-0.5 * new_mu.transpose() * new_cov.inverse() * new_mu);   //计算各个中心点在高斯混合模型下的概率 面积和离心率差作为权重
         }
       }
       for (int i = 0; i < ellipses_tgt[li].size(); i++) {
         for (int j = 0; j < ellipses_tgt[li].size(); j++) {
           Eigen::Matrix2d new_cov = scale_ * (ellipses_tgt[li][i].cov_ + ellipses_tgt[li][j].cov_);
           Eigen::Vector2d new_mu = ellipses_tgt[li][i].mu_ - ellipses_tgt[li][j].mu_;
-          // if(jump_level != 1)
-            // test_auto_corr_tgt_ += ellipses_tgt[li][i].w_ * ellipses_tgt[li][j].w_ / std::sqrt(new_cov.determinant()) *
-            //                 std::exp(-0.5 * new_mu.transpose() * new_cov.inverse() * new_mu);
           auto_corr_tgt_ += ellipses_tgt[li][i].w_ * ellipses_tgt[li][j].w_ / std::sqrt(new_cov.determinant()) *
                             std::exp(-0.5 * new_mu.transpose() * new_cov.inverse() * new_mu);
-          // no_cell_auto_corr_tgt_ += 1.0 / std::sqrt(new_cov.determinant()) *
-          //                   std::exp(-0.5 * new_mu.transpose() * new_cov.inverse() * new_mu);
-
-          // double cell_cnt_w_ = (ellipses_tgt[li][i].w_ < ellipses_tgt[li][j].w_ ? ellipses_tgt[li][i].w_ : ellipses_tgt[li][j].w_) / (ellipses_tgt[li][i].w_ > ellipses_tgt[li][j].w_ ? ellipses_tgt[li][i].w_ : ellipses_tgt[li][j].w_);
-          // double eccen_w_ = 1.0 - abs(ellipses_tgt[li][i].eccen_ - ellipses_tgt[li][j].eccen_);
-          // ae_auto_corr_tgt_ += cell_cnt_w_ * eccen_w_ * 1.0 / std::sqrt(new_cov.determinant()) *
-          //                   std::exp(-0.5 * new_mu.transpose() * new_cov.inverse() * new_mu);
         }
       }
     }
-//    printf("Auto corr: src: %f, tgt: %f\n", auto_corr_src_, auto_corr_tgt_);
-//    printf("Tot cells: src: %d, tgt: %d\n", total_cells_src_, total_cells_tgt_);
   }
 
   // evaluate
@@ -302,37 +163,9 @@ struct GMMPair {
         T qua = -0.5 * new_mu.transpose() * new_cov.inverse() * new_mu;
         cost[0] += -ellipses_tgt[li][pr.second].w_ * ellipses_src[li][pr.first].w_ * 1.0 / sqrt(new_cov.determinant()) *
                    exp(qua);      //用高斯分布公式计算残差
-          // add_opimite += new_mu.norm() / T(3.0 * (max_majax_src[li][pr.first] + max_majax_tgt[li][pr.second]));
-        // cost[0] += -ellipses_tgt[li][pr.second].w_ * ellipses_src[li][pr.first].w_ * 0.45 * 1.0 / sqrt(new_cov.determinant()) *
-        //            exp(qua) + 0.55 * add_opimite;      //残差使用GMM的L2距离的第二项，用高斯分布公式计算残差 + 中心L2
-        // cost[0] += ellipses_tgt[li][pr.second].w_ * ellipses_src[li][pr.first].w_ * 1.0 / sqrt(new_cov.determinant()) *
-        //            exp(qua);      //残差使用GMM的L2距离的第二项，用高斯分布公式计算残差
-        // cost[0] += 1.0 / sqrt(new_cov.determinant()) * exp(qua);      //残差使用GMM的L2距离的第二项，用高斯分布公式计算残差 去除原权重
-
-        //面积和离心率作为权重
-        // double cell_cnt_w_ = (ellipses_src[li][pr.first].w_ < ellipses_tgt[li][pr.second].w_ ? ellipses_src[li][pr.first].w_ : ellipses_tgt[li][pr.second].w_) / (ellipses_src[li][pr.first].w_ > ellipses_tgt[li][pr.second].w_ ? ellipses_src[li][pr.first].w_ : ellipses_tgt[li][pr.second].w_);
-        // double eccen_w_ = 1.0 - abs(ellipses_src[li][pr.first].eccen_ - ellipses_tgt[li][pr.second].eccen_);
-        // cost[0] += -cell_cnt_w_ * eccen_w_ * 1.0 / sqrt(new_cov.determinant()) * exp(qua);      //残差使用GMM的L2距离的第二项，用高斯分布公式计算残差
-        // cost[0] += -eccen_w_ * 1.0 / sqrt(new_cov.determinant()) * exp(qua);      //残差使用GMM的L2距离的第二项，用高斯分布公式计算残差
-        // cost[0] += -1.0 / sqrt(new_cov.determinant()) * exp(qua);      //残差使用GMM的L2距离的第二项，用高斯分布公式计算残差
-        // cost[0] += -ellipses_tgt[li][pr.second].w_ * ellipses_src[li][pr.first].w_ * 1.0 / sqrt(new_cov.determinant()) * exp(qua);      //用高斯分布公式计算残差
         
       }
-      // add_num += selected_pair_idx_[li].size();
     }
-
-    // add_opimite /= T(add_num);
-    // std::cout << "========= distribute L2: " << std::sqrt(auto_corr_src_ * auto_corr_tgt_) - cost[0] 
-    //           << " miu L2: " << add_opimite * std::sqrt(auto_corr_src_ * auto_corr_tgt_) << std::endl;
-    // cost[0] = 0.6 * (std::sqrt(auto_corr_src_ * auto_corr_tgt_) - cost[0]) + 0.4 * add_opimite * std::sqrt(auto_corr_src_ * auto_corr_tgt_);
-    // cost[0] = 0.5 * (std::sqrt(ae_auto_corr_src_ * ae_auto_corr_tgt_) - cost[0]) + 0.5 * add_opimite * std::sqrt(ae_auto_corr_src_ * ae_auto_corr_tgt_);
-    // cost[0] = 0.7 * (std::sqrt(ae_auto_corr_src_ * ae_auto_corr_tgt_) - cost[0]) + 0.3 * add_opimite * std::sqrt(ae_auto_corr_src_ * ae_auto_corr_tgt_);
-    // cost[0] = (std::sqrt(ae_auto_corr_src_ * ae_auto_corr_tgt_) - cost[0]);
-    //验证 μ与权重
-    // cost[0] = add_opimite;
-
-    // cost[0] = 0.5 * (cost[0] / std::sqrt(auto_corr_src_ * auto_corr_tgt_))+ 0.5 * add_opimite;
-    // cost[0] = 0.45 * cost[0] + 0.55 * 0.001 * add_opimite;
 
 
     return true;
@@ -361,12 +194,7 @@ public:
   /// \param cm_tgt 查询帧描述符指针
   /// \param T_init should be the best possible, because we use it to simplify weak correlation pairs. 两帧之间的最优初始相对位姿值
   /// \return -(T_init残差 除以 src和tgt的自相关数的乘积的开方)
-  double initProblem(const ContourManager &cm_src, const ContourManager &cm_tgt, const Eigen::Isometry2d &T_init) {
-//    printf("Param before opt:\n");
-//    for (auto dat: parameters) {
-//      std::cout << dat << std::endl;
-//    }
-//    std::cout << T_delta.matrix() << std::endl;
+  double initProblem(const LECDManager &cm_src, const LECDManager &cm_tgt, const Eigen::Isometry2d &T_init) {
 
     T_best_ = T_init;   //将image坐标系下的转移矩阵作为初值
     std::unique_ptr<GMMPair> ptr_gmm_pair(new GMMPair(cm_src, cm_tgt, cfg_, T_init));   //初始化
@@ -374,8 +202,6 @@ public:
     gmm_ptr_ = ptr_gmm_pair_copy.release();
     auto_corr_src = ptr_gmm_pair->auto_corr_src_;
     auto_corr_tgt = ptr_gmm_pair->auto_corr_tgt_;
-    // test_auto_corr_src = ptr_gmm_pair->test_auto_corr_src_;
-    // test_auto_corr_tgt = ptr_gmm_pair->test_auto_corr_tgt_;
     problem_ptr = std::make_unique<ceres::GradientProblem>(
         new ceres::AutoDiffFirstOrderFunction<GMMPair, 3>(ptr_gmm_pair.release())); // 利用GMMPair创建位姿非线性优化指针 release()释放ptr_gmm_pair的堆内存，并交给AutoDiffFirstOrderFunction
 
@@ -420,7 +246,6 @@ public:
     }
 
     return best_match / std::sqrt(auto_corr_src * auto_corr_tgt);
-    // return best_match / std::sqrt(test_auto_corr_src * test_auto_corr_tgt);
   }
 
   // T_tgt (should)= T_delta * T_src
@@ -438,36 +263,12 @@ public:
     options.max_num_iterations = 10;
     ceres::GradientProblemSolver::Summary summary;
     ceres::Solve(options, *problem_ptr, parameters, &summary);    //这里优化位姿估计
-    // std::cout << summary.FullReport() << std::endl;
-    // //打印优化中调用的次数
-    // static float all_times = 0;
-    // static float all_seconds = 0;
-    // static float cere_times = 0;
-    // cere_times++;
-    // all_times += summary.num_gradient_evaluations;
-    // all_seconds += summary.total_time_in_seconds;
-    // std::cout << "\t" << "times: " << summary.num_gradient_evaluations << " seconds: " << summary.total_time_in_seconds << std::endl;
-    // std::cout << "\t" << "\t" << "all times: " << all_times << " all seconds: " << all_seconds << " all cere times: " << cere_times << std::endl;
 
-
-#if HUMAN_READABLE
-    std::cout << summary.FullReport() << "\n";
-
-    printf("Param after opt:\n");
-    for (auto dat: parameters) {
-      std::cout << dat << std::endl;
-    }
-#endif
-
-    // normalize the score according to cell counts, and return the optimized parameter
-//    Eigen::Isometry2d T_res;
     T_best_.setIdentity();
     T_best_.rotate(parameters[2]);
     T_best_.pretranslate(V2D(parameters[0], parameters[1]));
 
     double corr = countCorrelation(gmm_ptr_, parameters);
-    // std::cout << "last corr: " << corr << " " << parameters[0] << " " << parameters[1] << " " << parameters[2] << std::endl;
-//    printf("Correlation: %f\n", correlation);
     return {corr, T_best_};
 
   }
@@ -479,8 +280,7 @@ public:
   /// \param bev_config 阈值结构体
   /// \return 估计值与真值的误差
   static Eigen::Isometry2d evalMetricEst(const Eigen::Isometry2d &T_delta, const Eigen::Isometry3d &gt_src_3d,
-                                         const Eigen::Isometry3d &gt_tgt_3d, const ContourManagerConfig &bev_config) {
-    // ignore non-square resolution for now:
+                                         const Eigen::Isometry3d &gt_tgt_3d, const LECDManagerConfig &bev_config) {
     CHECK_EQ(bev_config.reso_row_, bev_config.reso_col_);
 
     //转换坐标系 
@@ -489,17 +289,12 @@ public:
     T_to_tsen = T_so_ssen;
     Eigen::Isometry2d T_tsen_ssen2_est = T_to_tsen.inverse() * T_delta * T_so_ssen;   //将转换矩阵转换到激光雷达坐标系下
     T_tsen_ssen2_est.translation() *= bev_config.reso_row_;
-//    std::cout << "Estimated src in tgt sensor frame:\n" << T_tsen_ssen2_est.matrix() << std::endl;
 
-    // Lidar sensor src in the lidar tgt frame, T_wc like.
     Eigen::Isometry3d T_tsen_ssen3 = gt_tgt_3d.inverse() * gt_src_3d;   //?求真值坐标系之间的变换矩阵，按道理这个变换矩阵应该是src*tgt.inverse()
-//    std::cout << "gt src in tgt sensor frame 3d:\n" << T_tsen_ssen3.matrix() << std::endl;
 
     // TODO: project gt 3d into some gt 2d, and use
     Eigen::Isometry2d T_tsen_ssen2_gt;
     T_tsen_ssen2_gt.setIdentity();
-    // for translation: just the xy difference
-    // for rotation: rotate so that the two z axis align
     Eigen::Vector3d z0(0, 0, 1);
     Eigen::Vector3d z1 = T_tsen_ssen3.matrix().block<3, 1>(0, 2);
     Eigen::Vector3d ax = z0.cross(z1).normalized();
@@ -525,7 +320,7 @@ public:
   /// \param T_delta  在image坐标系下的src到tgt的转换矩阵
   /// \param bev_config 配置参数
   /// \return idar坐标系下的转换矩阵
-  static Eigen::Isometry2d getEstSensTF(const Eigen::Isometry2d &T_delta, const ContourManagerConfig &bev_config) {
+  static Eigen::Isometry2d getEstSensTF(const Eigen::Isometry2d &T_delta, const LECDManagerConfig &bev_config) {
     // ignore non-square resolution for now:
     CHECK_EQ(bev_config.reso_row_, bev_config.reso_col_);
 
