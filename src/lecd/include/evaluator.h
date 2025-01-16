@@ -1,9 +1,5 @@
-//
-// Created by lewis on 8/22/22.
-//
-
-#ifndef CONT2_EVALUATOR_ROS_H
-#define CONT2_EVALUATOR_ROS_H
+#ifndef EVALUATOR_H
+#define EVALUATOR_H
 
 #include "contour_db.h"
 #include "contour_mng.h"
@@ -92,6 +88,9 @@ class ContLCDEvaluator {
   std::vector<PredictionOutcome> pred_records;      //每一帧处理之后的储存容器
 
 public:
+  ContLCDEvaluator(const double &bar) : sim_thres(bar) {
+    
+  }
   //处理输入文件，保存pose scans 时间戳等数据
   ContLCDEvaluator(const std::string &fpath_pose, const std::string &fpath_laser, const double &bar) : sim_thres(bar) {
     std::fstream infile1, infile2;
@@ -281,10 +280,10 @@ public:
     CHECK(p_lidar_curr >= 0);
     // printf("p_lidar_curr: %d\n", p_lidar_curr);
     // printf("laser_info_ size: %d\n", laser_info_.size());
-    if (p_lidar_curr >= laser_info_.size()) {
-      printf("\n===\ncurrent addr %d exceeds boundary\n", p_lidar_curr);
-      return false;
-    }
+    // if (p_lidar_curr >= laser_info_.size()) {
+    //   printf("\n===\ncurrent addr %d exceeds boundary\n", p_lidar_curr);
+    //   return false;
+    // }
 
     // printf("\n===\nloaded scan addr %d, seq: %d, fpath: %s\n", p_lidar_curr, laser_info_[p_lidar_curr].seq,
           //  laser_info_[p_lidar_curr].fpath.c_str());
@@ -300,10 +299,15 @@ public:
     return laser_info_[p_lidar_curr];
   }
 
-  //返回帧数
-  const size_t &getScanInfoNum() const {
-    return laser_info_.size();
+  //填入当前点云帧数据结构体
+  void pushCurrScanInfo(LaserScanInfo& info_){
+    laser_info_.emplace_back(info_);
   }
+
+  //返回帧数
+  // const size_t &getScanInfoNum() const {
+  //   return laser_info_.size();
+  // }
   
   //获取评价数据
   const PredictionOutcome &getCurrEvaData() const {
@@ -327,8 +331,8 @@ public:
     std::string str_id = std::to_string(laser_info_[p_lidar_curr].seq);     //读取帧序号并转换成string
     str_id = "assigned_id_" + std::string(8 - str_id.length(), '0') + str_id;   //拼接
 
-    cmng_ptr->makeBEV<pcl::PointXYZ>(out_ptr, str_id);      //制作bev并保存
-    cmng_ptr->makeContoursRecurs();                         //contour 以每一层中每一个anchor为单元 生成key和bci并保存
+    // cmng_ptr->makeBEV<pcl::PointXYZ>(out_ptr, str_id);      //制作bev并保存
+    // cmng_ptr->makeContoursRecurs();                         //contour 以每一层中每一个anchor为单元 生成key和bci并保存
     return cmng_ptr;
   }
 
@@ -511,4 +515,4 @@ public:
 
 };
 
-#endif //CONT2_EVALUATOR_ROS_H
+#endif

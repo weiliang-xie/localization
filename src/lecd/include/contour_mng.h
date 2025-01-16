@@ -1,9 +1,5 @@
-//
-// Created by lewis on 5/5/22.
-//
-
-#ifndef CONT2_CONTOUR_MNG_H
-#define CONT2_CONTOUR_MNG_H
+#ifndef CONTOUR_MNG_H
+#define CONTOUR_MNG_H
 
 #include <iostream>
 #include <fstream>
@@ -32,6 +28,8 @@
 
 #include "tools/bm_util.h"
 #include "tools/algos.h"
+
+#include "lidar_rec.h"
 
 using KeyFloatType = float; // retrieval key's float number type
 //using RetrievalKey = Eigen::Matrix<KeyFloatType, 5, 1>;
@@ -445,11 +443,11 @@ class ContourManager {
   std::vector<int> layer_cell_cnt_;  // total number of cells in each layer/level  各层中所有contour占据的网格数量总和  删除椭圆未减少总和
   std::vector<std::vector<RetrievalKey>> layer_keys_;  // the key of each layer  各层中以不同的椭圆作为锚定得到的key  前两个是特征值，第三个是网格数量和 后部分填入处理后的每行的概率密度和 与layer_key_bcis_数量一致，都是piv_firsts_
   std::vector<std::vector<BCI>> layer_key_bcis_;  // NOTE: No validity check on bci. Check key before using corresponding bci! 各层中以不同的椭圆作为锚定得到的bci 与layer_keys_数量一致，都是piv_firsts_
-
-  cv::Mat1f bev_;   //float类型矩阵，大小是n_row_、n_col_ 存放各个网格内的最大高度 鸟瞰图矩阵 数据是网格最大高度 降采样后从雷达帧转换成图像帧
+ 
+  cv::Mat1f bev_;   //float类型矩阵，大小是n_row_、n_col_ 存放各个网格内的最大高度 鸟瞰图矩阵 数据是网格最大高度 降采样后从雷达帧转换成图像帧 make lecd
 //  std::vector<std::vector<V2F>> c_height_position_;  // downsampled but not discretized point xy position, another bev
 //  std::map<int, V2F> pillar_pos2f_;  // downsampled but not discretized point xy position,
-  std::vector<std::pair<int, Pixelf>> bev_pixfs_; // float row col height, and the hash generated from discrete row column. 按网格存放点云(经过处理的x y z) 顺序是网格顺序
+  std::vector<std::pair<int, Pixelf>> bev_pixfs_; // float row col height, and the hash generated from discrete row column. 按网格存放点云(经过处理的x y z) 顺序是网格顺序 make lecd
   float max_bin_val_ = -VAL_ABS_INF_, min_bin_val_ = VAL_ABS_INF_;      //点云帧中的最大高度和最小高度
   // TODO: se2
   // TODO: z axis pointing down
@@ -608,21 +606,45 @@ public:
   }
 
   //制作Contour Abstraction 抽象结构 制作 bci 和 key
-  void makeContoursRecurs() {
+  void makeContoursRecurs(LECD& pt_lecd_) {
     cv::Rect full_bev_roi(0, 0, bev_.cols, bev_.rows);
 
-    TicToc clk;
-    makeContourRecursiveHelper(full_bev_roi, cv::Mat1b(1, 1), 0, nullptr);
+    // TicToc clk;
+    // makeContourRecursiveHelper(full_bev_roi, cv::Mat1b(1, 1), 0, nullptr);
     // std::cout << "Time makecontour: " << clk.toc() << std::endl;
 
-    //!XWL 计算单帧需要的全部contour描述符个数
-    int32_t all_contour_num = 0;    //各个层次的椭圆数量和
-    static int32_t all_frame_contour_num = 0;   //所有帧的椭圆数量和
-    for(int i = 0; i < cont_views_.size(); i++)
-      all_contour_num += cont_views_[i].size();
+    //lecd —> views
+    for(auto lecd_ : pt_lecd_.ellipse_gp)
+    {
+      std::shared_ptr<ContourView> view_ (new ContourView(lecd_.level_, lecd_.poi_[0], lecd_.poi_[1]));
+    
+        //lecd赋值
+      view_->cell_cnt_ = lecd_.cell_cnt_;
+      view_->pos_mean_ = lecd_.pos_mean_;
+      view_->eig_vals_ = lecd_.eig_vals_;
+      view_->eig_vecs_ = lecd_.eig_vecs_;
+      view_->eccen_ = lecd_.eccen_;
+      view_->vol3_mean_ = lecd_.vol3_mean_;
+      view_->ecc_feat_ = lecd_.ecc_feat_;
 
-    all_frame_contour_num += all_contour_num;
-    // printf("XWL all contour num is %d\r\n", all_frame_contour_num);
+      cont_views_[view_->level_].emplace_back(view_);
+
+    }
+    //keys
+    for(int j = 0; j < pt_lecd_.keys_.size(); j++)
+    {
+      for(auto key_ : pt_lecd_.keys_[j])
+      {
+        RetrievalKey in_layerkeys;
+        in_layerkeys.setZero();          
+        for(int i = 0; i < key_.size(); i++)
+        {
+          in_layerkeys(i) = key_[i];
+        }
+          layer_keys_[j].emplace_back(in_layerkeys);
+      }
+    }
+
 
     //遍历帧内层次，对每个层次内的椭圆按大小排序 并计算各个椭圆大小占比
     for (int ll = 0; ll < cont_views_.size(); ll++) {
@@ -631,104 +653,14 @@ public:
                   return p1->cell_cnt_ > p2->cell_cnt_;
                 });   // bigger contours first. Or heavier first? 网格数量较多的contour排在前 对contour进行了大小排序
     }
-    // //对椭圆进行过滤 暂时屏蔽
-    // //过滤条件：1. 足够小   2. 离散的
-    // int out_all_ellipse_cnt = 0;
-    // for(int ll = 0; ll < cont_views_.size(); ll++){
-    //   //提取pose mean
-    //   std::vector<V2F> pose_mean_coll;
-    //   for(int lll = 0; lll < cont_views_[ll].size(); lll++)
-    //   {
-    //     pose_mean_coll.emplace_back(cont_views_[ll][lll]->pos_mean_);
-    //   }
 
-    //   //检索
-    //   std::vector<int> out_ellipse_index_;
-    //   for(int tgt = 0; tgt < pose_mean_coll.size(); tgt++)
-    //   {
-    //     //面积大的不考虑 阈值
-    //     if(cont_views_[ll][tgt]->cell_cnt_ >= 8)
-    //     {
-    //       continue;
-    //     }
-    //     std::pair<int, float> init_min_ = {-1, 1000};
-    //     std::vector<std::pair<int,float>> min_dis_= {init_min_, init_min_, init_min_};
-    //     for(int src = 0; src < pose_mean_coll.size(); src++)
-    //     {
-    //       //不计算自己本身
-    //       if(src == tgt)
-    //         continue;
-    //       if((pose_mean_coll[tgt] - pose_mean_coll[src]).norm() < min_dis_[2].second)
-    //       {
-    //         std::pair<int, float> replace_ = {src, (pose_mean_coll[tgt] - pose_mean_coll[src]).norm()};
-
-    //         min_dis_[2] = replace_;
-    //         std::sort(min_dis_.begin(), min_dis_.end(),
-    //         [&](const std::pair<int,float> &p1, const std::pair<int,float> &p2) -> bool {
-    //           return p1.second < p2.second;
-    //         });
-    //       }
-    //     }
-
-    //     //删除没有用到的空白的
-    //     for(int i = min_dis_.size() - 1; i >= 0; i--)
-    //     {
-    //       if(min_dis_[i].first == -1)
-    //         min_dis_.erase(min_dis_.begin() + i);
-    //     }
-
-    //     // std::cout << "----------the minest dis: ";
-    //     // for(auto m_dis_ : min_dis_)
-    //     // {
-    //     //   std::cout<< m_dis_.second << " "; 
-    //     // }
-    //     // std::cout << std::endl;
-
-    //     //判断离群
-    //     int dis_ok_cnt = 0;
-    //     for(int i = 0; i < min_dis_.size(); i++)
-    //     {
-    //       if(min_dis_[i].second > (cont_views_[ll][min_dis_[i].first]->eig_vals_[1] + cont_views_[ll][tgt]->eig_vals_[1]) * 0.0)
-    //       {
-    //         dis_ok_cnt++;
-    //       }
-    //     }
-
-    //     if(dis_ok_cnt || min_dis_.size() < 3)
-    //     {
-    //       out_ellipse_index_.emplace_back(tgt);
-    //     }
-    //   }
-
-    //   //剔除, 先删除大的索引
-    //   std::sort(out_ellipse_index_.begin(), out_ellipse_index_.end(),
-    //   [&](const int &p1, const int &p2) -> bool {
-    //     return p1 > p2;
-    //   });       
-
-    //   // std::cout << "----------delete index: ";
-    //   for(int i = 0; i < out_ellipse_index_.size(); i++)
-    //   {
-    //     // std::cout << out_ellipse_index_[i] << " ";
-    //     if(out_ellipse_index_[i] > cont_views_[ll].size())
-    //       break;
-    //     cont_views_[ll].erase(cont_views_[ll].begin() + out_ellipse_index_[i]);  //TODO 暂时屏蔽删除
-    //     // cont_views_[ll][out_ellipse_index_[i]]->del_enable = true;                  //TODO 不删除，加上标志位
-    //   }
-    //   // std::cout << std::endl;
-    //   out_all_ellipse_cnt += out_ellipse_index_.size();
-
-    //   // std::cout << "----------finish delete cont_views_: " << ll << std::endl;
-    // }
-    // // std::cout << "---TEST delete ellipse: " << out_all_ellipse_cnt << std::endl;
-
-
+    //计算面积和
     for (int ll = 0; ll < cont_views_.size(); ll++) {
       layer_cell_cnt_[ll] = 0;
       for (int j = 0; j < cont_views_[ll].size(); j++) {
         layer_cell_cnt_[ll] += cont_views_[ll][j]->cell_cnt_;
       }
-
+      //计算面积百分比
       cont_perc_[ll].reserve(cont_views_[ll].size());
       for (int j = 0; j < cont_views_[ll].size(); j++) {
         cont_perc_[ll].push_back(cont_views_[ll][j]->cell_cnt_ * 1.0f / layer_cell_cnt_[ll]);
@@ -827,8 +759,8 @@ public:
 //                    cv::THRESH_TOZERO); // mask is same type and dimension as bev_
       int accumulate_cell_cnt = 0;
       for (int seq = 0; seq < cfg_.piv_firsts_; seq++) {    //?这个for的目的是什么，选取前面的piv_first_的椭圆生成BCI
-        RetrievalKey key;
-        key.setZero();
+        // RetrievalKey key;
+        // key.setZero();
 
         BCI bci(seq, ll);     //这里是每一个层次中构建的每一个anchor都有bci
 
@@ -839,23 +771,23 @@ public:
         if (cont_views_[ll].size() > seq && cont_views_[ll][seq]->cell_cnt_ >= cfg_.min_cont_key_cnt_) {
 
           //求锚定选择范围的边界，左右上下边界
-          V2F v_cen = cont_views_[ll][seq]->pos_mean_.cast<float>();    //这个是选定的椭圆的pos_mean
-          int r_cen = int(v_cen.x()), c_cen = int(v_cen.y());
-          int r_min = std::max(0, r_cen - roi_radius_padded),
-              r_max = std::min(cfg_.n_row_ - 1, r_cen + roi_radius_padded);
-          int c_min = std::max(0, c_cen - roi_radius_padded),
-              c_max = std::min(cfg_.n_col_ - 1, c_cen + roi_radius_padded);
+          // V2F v_cen = cont_views_[ll][seq]->pos_mean_.cast<float>();    //这个是选定的椭圆的pos_mean
+          // int r_cen = int(v_cen.x()), c_cen = int(v_cen.y());
+          // int r_min = std::max(0, r_cen - roi_radius_padded),
+          //     r_max = std::min(cfg_.n_row_ - 1, r_cen + roi_radius_padded);
+          // int c_min = std::max(0, c_cen - roi_radius_padded),
+          //     c_max = std::min(cfg_.n_col_ - 1, c_cen + roi_radius_padded);
 
-          int num_bins = RET_KEY_DIM - 3;   //这个是什么数量 bin的数量，用半径去求bin长度，说明bin是环形
-          KeyFloatType bin_len = cfg_.roi_radius_ / num_bins;
-          std::vector<KeyFloatType> ring_bins(num_bins, 0);
+          // int num_bins = RET_KEY_DIM - 3;   //这个是什么数量 bin的数量，用半径去求bin长度，说明bin是环形
+          // KeyFloatType bin_len = cfg_.roi_radius_ / num_bins;
+          // std::vector<KeyFloatType> ring_bins(num_bins, 0);
 
-          int div_per_bin = 5;     //这个是什么数量 bin切分后的块数量
-          std::vector<KeyFloatType> discrete_divs(div_per_bin * num_bins, 0);   //div_bin的总数量大小的容器
-          KeyFloatType div_len = cfg_.roi_radius_ / (num_bins * div_per_bin);   //div_bin长度
-          int cnt_point = 0;      //满足计算高斯概率密度要求的网格个数，在anchor附近范围内，且高度满足在DIST_BIN_LAYERS[0]以上
+          // int div_per_bin = 5;     //这个是什么数量 bin切分后的块数量
+          // std::vector<KeyFloatType> discrete_divs(div_per_bin * num_bins, 0);   //div_bin的总数量大小的容器
+          // KeyFloatType div_len = cfg_.roi_radius_ / (num_bins * div_per_bin);   //div_bin长度
+          // int cnt_point = 0;      //满足计算高斯概率密度要求的网格个数，在anchor附近范围内，且高度满足在DIST_BIN_LAYERS[0]以上
 
-          RunningStatRecorder rec_tmp; // for case 3 没有被使用
+          // RunningStatRecorder rec_tmp; // for case 3 没有被使用
 
 //          // Get data for visualization: (for data to draw plots in paper) paper data (1/3)
 //          bool vis_data = (ll == 2 && seq == 0 && int_id_ == 1648);
@@ -864,17 +796,17 @@ public:
 //          KeyFloatType ddiv_len = cfg_.roi_radius_ / (140);
 
           //遍历选中的锚定椭圆附近的锚定范围内的网格 先列后行
-          for (int rr = r_min; rr <= r_max; rr++) {
-            for (int cc = c_min; cc <= c_max; cc++) {
-//              if (bev_(rr, cc) < cfg_.lv_grads_[ll])
-              if (bev_(rr, cc) < cfg_.lv_grads_[DIST_BIN_LAYERS[0]])  // NOTE: new key 高度小于 DIST_BIN_LAYERS[0] 这层的网格不采用
-                continue;
+//           for (int rr = r_min; rr <= r_max; rr++) {
+//             for (int cc = c_min; cc <= c_max; cc++) {
+// //              if (bev_(rr, cc) < cfg_.lv_grads_[ll])
+//               if (bev_(rr, cc) < cfg_.lv_grads_[DIST_BIN_LAYERS[0]])  // NOTE: new key 高度小于 DIST_BIN_LAYERS[0] 这层的网格不采用
+//                 continue;
 
-              int q_hash = rr * cfg_.n_col_ + cc;
-              std::pair<int, Pixelf> sear_res = search_vec<Pixelf>(bev_pixfs_, 0, bev_pixfs_.size() - 1,
-                                                                   q_hash);
-              DCHECK_EQ(sear_res.first, q_hash);
-              KeyFloatType dist = (V2F(sear_res.second.row_f, sear_res.second.col_f) - v_cen).norm();   //选中网格距离椭圆中心pos_mean的距离 用来作为高斯概率密度的么mean？
+//               int q_hash = rr * cfg_.n_col_ + cc;
+//               std::pair<int, Pixelf> sear_res = search_vec<Pixelf>(bev_pixfs_, 0, bev_pixfs_.size() - 1,
+//                                                                    q_hash);
+//               DCHECK_EQ(sear_res.first, q_hash);
+//               KeyFloatType dist = (V2F(sear_res.second.row_f, sear_res.second.col_f) - v_cen).norm();   //选中网格距离椭圆中心pos_mean的距离 用来作为高斯概率密度的么mean？
 
 //              KeyFloatType dist = (pillar_pos2f_.at(rr * cfg_.n_col_ + cc) - v_cen).norm();
 
@@ -885,19 +817,19 @@ public:
 //              }
 
               // case 2: gmm, normalized dist小于anchor半径 && 网格内的高度大于限制阈值 (再一次进行限制)
-              if (dist < cfg_.roi_radius_ - 1e-2 && bev_(rr, cc) > cfg_.lv_grads_[DIST_BIN_LAYERS[0]]) { // imprv key variance
+              // if (dist < cfg_.roi_radius_ - 1e-2 && bev_(rr, cc) > cfg_.lv_grads_[DIST_BIN_LAYERS[0]]) { // imprv key variance
 //                int higher_cnt = 1; // number of levels spanned by this pixel
 //                for (int ele = ll + 1; ele < cfg_.lv_grads_.size(); ele++)
-                int higher_cnt = 0;
-                for (int ele = DIST_BIN_LAYERS[0]; ele < cfg_.lv_grads_.size(); ele++)
-                  if (bev_(rr, cc) > cfg_.lv_grads_[ele])     //判断这个网格的高度是否大于当前层DIST_BIN_LAYERS[0]及以上层
-                    higher_cnt++;     //当前网格高度覆盖的层数计数
+                // int higher_cnt = 0;
+                // for (int ele = DIST_BIN_LAYERS[0]; ele < cfg_.lv_grads_.size(); ele++)
+                //   if (bev_(rr, cc) > cfg_.lv_grads_[ele])     //判断这个网格的高度是否大于当前层DIST_BIN_LAYERS[0]及以上层
+                //     higher_cnt++;     //当前网格高度覆盖的层数计数
 
-                cnt_point++;
-                for (int div_idx = 0; div_idx < num_bins * div_per_bin; div_idx++)
-                  //求高斯概率密度 用选中网格距离中心的距离作为均值，求以选中的网格中心为中心在与anchor中心点连接方向上延伸出去分割的各个网格的高斯概率密度，并辅与高度层数加权，计算在所有的高斯概率密度和
-                  discrete_divs[div_idx] +=
-                      higher_cnt * gaussPDF<KeyFloatType>(div_idx * div_len + 0.5 * div_len, dist, 1.0);
+                // cnt_point++;
+                // for (int div_idx = 0; div_idx < num_bins * div_per_bin; div_idx++)
+                //   //求高斯概率密度 用选中网格距离中心的距离作为均值，求以选中的网格中心为中心在与anchor中心点连接方向上延伸出去分割的各个网格的高斯概率密度，并辅与高度层数加权，计算在所有的高斯概率密度和
+                //   discrete_divs[div_idx] +=
+                //       higher_cnt * gaussPDF<KeyFloatType>(div_idx * div_len + 0.5 * div_len, dist, 1.0);
 
 //                if (vis_data) {  // paper data (2/3)
 //                  printf("discrete: %f %d %f\n", dist, higher_cnt, bev_(rr, cc));
@@ -905,7 +837,7 @@ public:
 //                    dense_divs[ddiv_idx] +=
 //                        higher_cnt * gaussPDF<KeyFloatType>(ddiv_idx * ddiv_len + 0.5 * ddiv_len, dist, 1.0);
 //                }
-              }
+              // }
 
 //              // case 3: using another ellipse
 //              if (dist < cfg_.roi_radius_ - 1e-2 && bev_(rr, cc) > cfg_.lv_grads_[ll]) {
@@ -913,8 +845,8 @@ public:
 //                rec_tmp.runningStatsF(pos2f.x(), pos2f.y(), bev_(rr, cc));
 //              }
 
-            }
-          }
+            // }
+          // }
 
 //          if (vis_data) {  // paper data (3/3)
 //            for (auto dense_div_dat: dense_divs)
@@ -924,13 +856,13 @@ public:
 
 
           // case 2: gmm, normalized
-          for (int b = 0; b < num_bins; b++) {
-            for (int d = 0; d < div_per_bin; d++) {
-              ring_bins[b] += discrete_divs[b * div_per_bin + d];   //一个bin内的概率密度求和
-            }
-            ring_bins[b] *= bin_len / std::sqrt(cnt_point);         //?这个的目的是什么？ 标准化吗？
+          // for (int b = 0; b < num_bins; b++) {
+          //   for (int d = 0; d < div_per_bin; d++) {
+          //     ring_bins[b] += discrete_divs[b * div_per_bin + d];   //一个bin内的概率密度求和
+          //   }
+          //   ring_bins[b] *= bin_len / std::sqrt(cnt_point);         //?这个的目的是什么？ 标准化吗？
 //            ring_bins[b] *= bin_len;  // almost no performance degradation compared with the above one
-          }
+          // }
 
 //          // case 3: using another ellipse
 //          ContourView cv_tmp(ll, 0, 0, nullptr); // for case 3
@@ -944,24 +876,24 @@ public:
 //          key(2) = (cont_views_[ll][seq]->pos_mean_ - cont_views_[ll][seq]->com_).norm();
 
           //前三个key值 存入layer_keys_
-          key(0) =
-              std::sqrt(cont_views_[ll][seq]->eig_vals_(1) * cont_views_[ll][seq]->cell_cnt_);  // max eigen value * cnt
-          key(1) =
-              std::sqrt(cont_views_[ll][seq]->eig_vals_(0) * cont_views_[ll][seq]->cell_cnt_);  // min eigen value * cnt
+          // key(0) =
+          //     std::sqrt(cont_views_[ll][seq]->eig_vals_(1) * cont_views_[ll][seq]->cell_cnt_);  // max eigen value * cnt
+          // key(1) =
+          //     std::sqrt(cont_views_[ll][seq]->eig_vals_(0) * cont_views_[ll][seq]->cell_cnt_);  // min eigen value * cnt
 //          key(2) = (cont_views_[ll][seq]->pos_mean_ - cont_views_[ll][seq]->com_).norm() *
 //                   std::sqrt(cont_views_[ll][seq]->cell_cnt_);
 //                   (cont_views_[ll][seq]->cell_cnt_);
-          key(2) = std::sqrt(accumulate_cell_cnt);    //前piv_firsts_的contour的网格数量和的开方
+          // key(2) = std::sqrt(accumulate_cell_cnt);    //前piv_firsts_的contour的网格数量和的开方
 
 
           // case 1,2:
-          DCHECK_EQ(num_bins + 3, RET_KEY_DIM);
-          for (int nb = 0; nb < num_bins; nb++) {
+          // DCHECK_EQ(num_bins + 3, RET_KEY_DIM);
+          // for (int nb = 0; nb < num_bins; nb++) {
 //            key(3 + nb) = ring_bins[nb];
 //            key(3 + nb) = ring_bins[nb] / (M_PI * (2 * nb + 1) * bin_len);  // density on the ring
-            key(3 + nb) = ring_bins[nb];  // case 2.1: count on the ring  //key值后部分填入处理后的每行的概率密度和
+            // key(3 + nb) = ring_bins[nb];  // case 2.1: count on the ring  //key值后部分填入处理后的每行的概率密度和
 //            key(3 + nb) = ring_bins[nb] / (2 * nb + 1);  // case 2.2: kind of density on the ring
-          }
+          // }
 
 //          // case 3:
 //          key(3) = std::sqrt(cont_views_[ll][seq]->cell_cnt_);
@@ -1021,7 +953,7 @@ public:
         }
 //        if(key.sum()!=0)
         layer_key_bcis_[ll].emplace_back(bci);  // no validity check on bci. check key before use bci!
-        layer_keys_[ll].emplace_back(key);  // even invalid keys are recorded.
+        // layer_keys_[ll].emplace_back(key);  // even invalid keys are recorded.
 
 //        printf("Key: l%d s%d: ", ll, seq);
 //        for (float &ki: key.array)
@@ -1474,4 +1406,4 @@ public:
 };
 
 
-#endif //CONT2_CONTOUR_MNG_H
+#endif

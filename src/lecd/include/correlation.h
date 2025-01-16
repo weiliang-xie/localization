@@ -1,9 +1,5 @@
-//
-// Created by lewis on 6/21/22.
-//
-
-#ifndef CONT2_CORRELATION_H
-#define CONT2_CORRELATION_H
+#ifndef CORRELATION_H
+#define CORRELATION_H
 
 #include "contour_mng.h"
 #include <ceres/ceres.h>
@@ -544,4 +540,4 @@ class BEVCorrelation {
 
 };
 
-#endif //CONT2_CORRELATION_H
+#endif

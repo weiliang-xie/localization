@@ -1,13 +1,5 @@
-//
-// Created by lewis on 5/5/22.
-//
-
-/*
- * Slice actually...
- * */
-
-#ifndef CONT2_CONTOUR_H
-#define CONT2_CONTOUR_H
+#ifndef CONTOUR_H
+#define CONTOUR_H
 
 #include <utility>
 #include <vector>
@@ -414,4 +406,4 @@ struct ContourView {
 };
 
 
-#endif //CONT2_CONTOUR_H
+#endif

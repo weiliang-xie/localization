@@ -1,11 +1,7 @@
-//
-// Created by lewis on 5/6/22.
-//
-//contour描述符database相关，candidate处理，kn树
-#ifndef CONT2_CONTOUR_DB_H
-#define CONT2_CONTOUR_DB_H
+#ifndef CONTOUR_DB_H
+#define CONTOUR_DB_H
 
-// #include "contour_mng.h"
+
 #include "contour_mng.h"
 #include "correlation.h"
 #include "tools/algos.h"
@@ -502,6 +498,8 @@ struct CandidateManager {
       candidates_.emplace_back(std::move(new_cand));
     }
 
+    printf("Anchor Filiter remianing: %lu.\n", candidates_.size());
+
     // correlation calculation
     // TODO: merge results for the same candidate pose
 
@@ -613,7 +611,7 @@ struct CandidateManager {
     CHECK_EQ(p2 + 1 + cnt_to_rm, candidates_.size());   //判断总数
     candidates_.erase(candidates_.begin() + p2 + 1, candidates_.end()); //删除不通过估计的候选
 
-    // printf("Tidy up pose remaining: %lu.\n", candidates_.size());
+    printf("Tidy up pose remaining: %lu.\n", candidates_.size());
 
   }
 
@@ -793,6 +791,9 @@ public:
           stp.record("KNN search");
           t1 += clk.toc();
 
+          // printf("KNN Search remianing: %lu.\n", tmp_res.size());
+
+
 #if HUMAN_READABLE
           printf("Dist ub: %f\n", dist_ub);
           printf("L:%d S:%d. Found in range: %lu\n", q_levels_[ll], seq, tmp_res.size());
@@ -827,11 +828,11 @@ public:
     t5 += clk.toc();
 
     if (num_best_cands) {
-      // printf("After check 1: %d\n", cand_mng.cand_aft_check1);
-      // printf("After check 2: %d\n", cand_mng.cand_aft_check2);
-      // printf("After check 3: %d\n", cand_mng.cand_aft_check3);
+      printf("After check 1: %d\n", cand_mng.cand_aft_check1);
+      printf("After check 2: %d\n", cand_mng.cand_aft_check2);
+      printf("After check 3: %d\n", cand_mng.cand_aft_check3);
     } else {
-      // printf("No candidates are valid after checks.\n");
+      printf("No candidates are valid after checks.\n");
     }
 
     for (int i = 0; i < num_best_cands; i++) {
@@ -886,4 +887,4 @@ public:
 };
 
 
-#endif //CONT2_CONTOUR_DB_H
+#endif
