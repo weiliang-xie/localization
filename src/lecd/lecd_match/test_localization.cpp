@@ -153,6 +153,7 @@ void localization_thread()
     int cur_seq = 0;
 
     // TODO 读取地图 待添加
+    
 
     while (true)
     {
@@ -192,7 +193,7 @@ void localization_thread()
 
         std::cout << std::endl; // 完成一次识别 打印空行
     }
-    std::this_thread::sleep_for(std::chrono::milliseconds(100)); // 模拟处理延迟
+    // std::this_thread::sleep_for(std::chrono::milliseconds(100)); // 模拟处理延迟
 }
 
 int main(int argc, char **argv)
