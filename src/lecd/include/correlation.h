@@ -530,8 +530,8 @@ public:
         T_tsen_ssen2_gt.rotate(std::atan2(R_rectified(1, 0), R_rectified(0, 0)));
         T_tsen_ssen2_gt.pretranslate(Eigen::Vector2d(T_tsen_ssen3.translation().segment(0, 2))); // only xy
 
-        std::cout << "T delta gt 2d:\n"
-                  << T_tsen_ssen2_gt.matrix() << std::endl; // Note T_delta is not comparable to this
+        // std::cout << "T delta gt 2d:\n"
+        //           << T_tsen_ssen2_gt.matrix() << std::endl; // Note T_delta is not comparable to this
 
         Eigen::Isometry2d T_gt_est = T_tsen_ssen2_gt.inverse() * T_tsen_ssen2_est;
         return T_gt_est; // 这是gt值与estimate值之间的旋转平移矩阵，越小越接近

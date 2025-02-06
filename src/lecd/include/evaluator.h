@@ -100,201 +100,6 @@ public:
     ContLCDEvaluator(const double &bar) : sim_thres(bar)
     {
     }
-    // 处理输入文件，保存pose scans 时间戳等数据
-    ContLCDEvaluator(const std::string &fpath_pose, const std::string &fpath_laser, const double &bar) : sim_thres(bar)
-    {
-        std::fstream infile1, infile2;
-        std::string sbuf, pname;
-
-        //  1. read data from the 2 aforementioned files
-        std::vector<double> gt_tss;
-        std::vector<Eigen::Isometry3d> gt_poses;
-
-        infile1.open(fpath_pose, std::ios::in);
-        if (infile1.rdstate() != std::ifstream::goodbit)
-        {
-            std::cerr << "Error opening gt pose file: " << fpath_pose << std::endl;
-            return;
-        }
-
-        const int line_len = 13; // timestamp and the 12-element sensor gt pose
-        while (std::getline(infile1, sbuf))
-        {
-            std::istringstream iss(sbuf);
-
-            double tmp;
-            Eigen::Vector3d tmp_trans;
-            Eigen::Matrix3d tmp_rot_mat;
-            Eigen::Quaterniond tmp_rot_q;
-            Eigen::Isometry3d tmp_tf;
-            for (int i = 0; i < line_len; i++)
-            {
-                CHECK(iss >> tmp);
-                if (i == 0)
-                    gt_tss.push_back(tmp); // 获取时间戳
-                else
-                { // 获取pose
-                    if ((i - 1) % 4 == 3)
-                        tmp_trans((i - 1) / 4) = tmp;
-                    else
-                        //            tmp_rot_mat((i - 1) / 4, (i - 1) % 4);  // `-Wuninitialized` cannot detect this bug!
-                        tmp_rot_mat((i - 1) / 4, (i - 1) % 4) = tmp;
-                }
-            }
-
-            tmp_rot_q = Eigen::Quaterniond(tmp_rot_mat);
-            tmp_tf.setIdentity();
-            tmp_tf.rotate(tmp_rot_q);
-            tmp_tf.pretranslate(tmp_trans); // 完成平移部分和旋转部分处理合并
-
-            gt_poses.emplace_back(tmp_tf); // 储存gt pose
-        }
-        infile1.close();
-        CHECK_EQ(gt_poses.size(), gt_tss.size());
-        printf("Added %lu stamped gt poses.\n", gt_poses.size());
-
-        std::vector<int> sort_permu(gt_poses.size());
-        std::iota(sort_permu.begin(), sort_permu.end(), 0);
-        std::sort(sort_permu.begin(), sort_permu.end(), [&](const int &a, const int &b)
-                  { return gt_tss[a] < gt_tss[b]; }); // 将下标按照时间戳先后进行排序
-
-        apply_sort_permutation(sort_permu, gt_poses); // 按sort_permu的顺序排序pose
-        apply_sort_permutation(sort_permu, gt_tss);   // 按sort_permu的顺序排序时间戳tss
-
-        //  2. Align to each laser scan a gt pose the closest ts. Log the scan files that have no associated gt
-        //  poses and skip them at this stage.
-        // 获取点云雷达数据地址信息
-        infile2.open(fpath_laser, std::ios::in);
-        if (infile2.rdstate() != std::ifstream::goodbit)
-        {
-            std::cerr << "Error opening laser info file: " << fpath_laser << std::endl;
-            return;
-        }
-
-        std::vector<double> lidar_ts;
-        std::vector<int> assigned_seq;
-        std::vector<std::string> bin_paths;
-        while (std::getline(infile2, sbuf))
-        {
-            std::istringstream iss(sbuf);
-
-            double ts;
-            int seq;
-            std::string bin_path;
-
-            if (iss >> ts)
-            {
-                lidar_ts.emplace_back(ts); // 保存时间戳
-
-                iss >> seq;
-                assigned_seq.emplace_back(seq); // 保存序号
-
-                iss >> bin_path;
-                bin_paths.emplace_back(bin_path); // 保存bin地址
-
-                //        printf("%.6f %d %s\n", ts, seq, bin_path.c_str());
-            }
-        }
-        infile2.close();
-        CHECK_EQ(lidar_ts.size(), assigned_seq.size());
-        CHECK_EQ(lidar_ts.size(), bin_paths.size());
-        printf("Added %lu laser bin paths.\n", bin_paths.size());
-
-        // filter the lidar bin paths
-        int cnt_valid_scans = 0;
-        for (int i = 0; i < lidar_ts.size(); i++)
-        {
-            int gt_idx = lookupNN<double>(lidar_ts[i], gt_tss, ts_diff_tol);
-            if (gt_idx < 0)
-                continue;
-            LaserScanInfo tmp_info;
-            tmp_info.sens_pose = gt_poses[gt_idx]; // 存入LaserScanInfo
-            tmp_info.fpath = bin_paths[i];
-            tmp_info.ts = lidar_ts[i];
-            tmp_info.seq = assigned_seq[i];
-            cnt_valid_scans++;
-            laser_info_.emplace_back(tmp_info);           // 保存pose 点云地址 时间戳
-            assigned_seqs_.emplace_back(assigned_seq[i]); // 保存点云序号
-        }
-        printf("Found %d laser scans with gt poses.\n", cnt_valid_scans);
-
-        // check ordering
-        for (auto it2 = laser_info_.begin(); it2 != laser_info_.end();)
-        {
-            auto it1 = it2++;
-            if (it2 != laser_info_.end())
-            {
-                CHECK_LT(it1->seq, it2->seq);
-                CHECK_LT(it1->ts, it2->ts);
-            }
-        }
-        printf("Ordering check passed\n");
-
-        //  // save gt pose and bin path, so we can arrange the data in KITTI format with script (format_mulran_as_kitti.py)
-        //  std::FILE *fp1, *fp2, *fp3, *fp4, *fp5;
-        //  std::string fp1_pose = std::string(PJSRCDIR) + "/sample_data/mulran_to_kitti/poses.txt";
-        //  std::string fp2_bin = std::string(PJSRCDIR) + "/sample_data/mulran_to_kitti/used_bins.txt";
-        //  std::string fp3_ts = std::string(PJSRCDIR) + "/sample_data/mulran_to_kitti/times.txt";
-
-        //  // Use mulran data inplace, and re-index the sequence and timing of the scans
-        //  std::string fp4_ts_lbins = std::string(PJSRCDIR) + "/sample_data/mulran_to_kitti/ts-lidar_bins-.txt";
-        //  std::string fp5_ts_spose = std::string(PJSRCDIR) + "/sample_data/mulran_to_kitti/ts-sens_pose-.txt";
-
-        //  fp1 = std::fopen(fp1_pose.c_str(), "w");
-        //  fp2 = std::fopen(fp2_bin.c_str(), "w");
-        //  fp3 = std::fopen(fp3_ts.c_str(), "w");
-        //  fp4 = std::fopen(fp4_ts_lbins.c_str(), "w");
-        //  fp5 = std::fopen(fp5_ts_spose.c_str(), "w");
-        //  for (int i = 0; i < laser_info_.size(); i++) {
-        //    // Use mulran data inplace, and re-index the sequence and timing of the scans
-        //    fprintf(fp4, "%.2f %d %s", i / 10.0, i, laser_info_[i].fpath.c_str());
-        //    fprintf(fp5, "%.2f ", i / 10.0);
-
-        //    for (int j = 0; j < 12; j++) {
-        //      fprintf(fp1, "%.6f ", laser_info_[i].sens_pose(j / 4, j % 4));
-        //      fprintf(fp5, "%.6f ", laser_info_[i].sens_pose(j / 4, j % 4));
-        //    }
-        //    fprintf(fp2, "%s", laser_info_[i].fpath.c_str());
-        //    fprintf(fp3, "%.2f", i / 10.0);
-        //    if (i < laser_info_.size() - 1) {
-        //      fprintf(fp1, "\n");
-        //      fprintf(fp2, "\n");
-        //      fprintf(fp3, "\n");
-        //      fprintf(fp4, "\n");
-        //      fprintf(fp5, "\n");
-        //    }
-        //  }
-        //  std::fclose(fp1);
-        //  std::fclose(fp2);
-        //  std::fclose(fp3);
-        //  std::fclose(fp4);
-        //  std::fclose(fp5);
-        //  exit(0);
-
-        // 3. Add info about gt loop closure
-        // 寻找真值回环帧
-        int cnt_gt_lc_p = 0;
-        int cnt_gt_lc = 0;
-        for (auto &it_fast : laser_info_)
-        { // not necessarily ordered by assigned seq
-            for (auto &it_slow : laser_info_)
-            {
-                if (it_fast.ts < it_slow.ts + min_time_excl)
-                    break;
-                double dist = (it_fast.sens_pose.translation() - it_slow.sens_pose.translation()).norm();
-                if (dist < 5.0)
-                {
-                    if (!it_fast.has_gt_positive_lc)
-                    {
-                        it_fast.has_gt_positive_lc = true;
-                        cnt_gt_lc_p++;
-                    }
-                    cnt_gt_lc++;
-                }
-            }
-        }
-        printf("Found %d poses with %d gt loops.\n", cnt_gt_lc_p, cnt_gt_lc);
-    }
 
     bool loadNewScan()
     {
@@ -326,6 +131,25 @@ public:
     // 填入当前点云帧数据结构体
     void pushCurrScanInfo(LaserScanInfo &info_)
     {
+        // 寻找真值回环帧
+        int cnt_gt_lc_p = 0;
+        int cnt_gt_lc = 0;
+        for (auto &it_slow : laser_info_)
+        {
+            if (info_.ts < it_slow.ts + min_time_excl)
+                break;
+            double dist = (info_.sens_pose.translation() - it_slow.sens_pose.translation()).norm();
+            if (dist < 5.0)
+            {
+                if (!info_.has_gt_positive_lc)
+                {
+                    info_.has_gt_positive_lc = true;
+                    cnt_gt_lc_p++;
+                }
+                cnt_gt_lc++;
+            }
+        }   
+
         laser_info_.emplace_back(info_);
     }
 
@@ -375,7 +199,7 @@ public:
                   const Eigen::Isometry2d &T_est_delta_2d = Eigen::Isometry2d::Identity())
     {
         int id_tgt = q_mng->getIntID(); //// q: src, cand: tgt 这个注释有问题吧
-        int addr_tgt = lookupNN<int>(id_tgt, assigned_seqs_, 0);
+        int addr_tgt = id_tgt;
         CHECK_GE(addr_tgt, 0);
 
         PredictionOutcome curr_res;
@@ -387,7 +211,7 @@ public:
         {
             // The prediction is positive
             int id_src = cand_mng->getIntID();
-            int addr_src = lookupNN<int>(id_src, assigned_seqs_, 0);
+            int addr_src = id_src;
             CHECK_GE(addr_src, 0);
             addr_src_ = addr_src;
 
@@ -401,10 +225,10 @@ public:
             double gt_trans_norm3d = (laser_info_[addr_src].sens_pose.translation() -
                                       laser_info_[addr_tgt].sens_pose.translation())
                                          .norm();
-            // printf(" Dist: Est2d: %.2f; GT3d: %.2f\n", est_trans_norm2d, gt_trans_norm3d);
+            printf(" Dist: Est2d: %.2f; GT3d: %.2f\n", est_trans_norm2d, gt_trans_norm3d);
 
             double err_vec[3] = {tf_err.translation().x(), tf_err.translation().y(), std::atan2(tf_err(1, 0), tf_err(0, 0))};
-            // printf(" Error: dx=%f, dy=%f, dtheta=%f\n", err_vec[0], err_vec[1], err_vec[2]);
+            printf(" Error: dx=%f, dy=%f, dtheta=%f\n", err_vec[0], err_vec[1], err_vec[2]);
 
             memcpy(curr_res.est_err, err_vec, sizeof(err_vec)); // 保存
             if (est_corr >= sim_thres)
@@ -455,7 +279,7 @@ public:
             curr_res.all_cont_data_size.first += level_cont_size;
             curr_res.all_cont_data_size.second += level_cont_size_test;
         }
-        printf(" Datasize: %d Test datasize: %d\n", curr_res.all_cont_data_size.first, curr_res.all_cont_data_size.second);
+        // printf(" Datasize: %d Test datasize: %d\n", curr_res.all_cont_data_size.first, curr_res.all_cont_data_size.second);
 
         // 跑数据处理
         if (curr_res.tfpn == PredictionOutcome::TP || curr_res.tfpn == PredictionOutcome::FP)

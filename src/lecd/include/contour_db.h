@@ -529,7 +529,7 @@ struct CandidateManager
             candidates_.emplace_back(std::move(new_cand));
         }
 
-        printf("Anchor Filiter remianing: %lu.\n", candidates_.size());
+        // printf("Anchor Filiter remianing: %lu.\n", candidates_.size());
 
         // correlation calculation
         // TODO: merge results for the same candidate pose
@@ -698,7 +698,7 @@ struct CandidateManager
         for (int i = 0; i < pre_sel_size; i++)
         {
             auto tmp_res = candidates_[i].corr_est_->calcCorrelation(); // fine optimize 优化位姿
-                                                                        //      candidates_[i].anch_props_[0].sim_score_.correlation_ = tmp_res.first;
+    //      candidates_[i].anch_props_[0].sim_score_.correlation_ = tmp_res.first;
             candidates_[i].anch_props_[0].correlation_ = tmp_res.first; // 更新相关度
             candidates_[i].anch_props_[0].T_delta_ = tmp_res.second;    // 更新位姿
         }

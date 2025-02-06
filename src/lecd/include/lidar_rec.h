@@ -134,13 +134,17 @@ struct LECD{
     int16_t lecd_nums;  //椭圆数量
     double time_stamp;  //时间戳
 
+    //位姿真值
+    Eigen::Matrix<double, 3, 4> gt_pose; 
+
     friend void to_json(nlohmann::json& j, const LECD& obj) {
         j = nlohmann::json{
             {"pt_seq",obj.pt_seq},
             {"lecd_nums",obj.lecd_nums},
             {"time_stamp",obj.time_stamp},
             {"ellipse_gp", obj.ellipse_gp},  // 序列化 ellipse_gp
-            {"keys_", nlohmann::json::array()}    // 初始化 keys_ 的 JSON 数组
+            {"keys_", nlohmann::json::array()},    // 初始化 keys_ 的 JSON 数组
+            {"gt_pose", obj.gt_pose}
         };
     
         // 序列化 keys_
@@ -160,6 +164,16 @@ struct LECD{
         j.at("lecd_nums").get_to(obj.lecd_nums);
         j.at("time_stamp").get_to(obj.time_stamp);
         j.at("ellipse_gp").get_to(obj.ellipse_gp);
+
+        if (j.contains("gt_pose")) {
+            std::vector<std::vector<double>> gt_pose_vec = j.at("gt_pose").get<std::vector<std::vector<double>>>();
+            for (int i = 0; i < 3; ++i) {
+                for (int j = 0; j < 4; ++j) {
+                    obj.gt_pose(i, j) = gt_pose_vec[i][j];
+                }
+            }
+
+        }
 
         // 解析 keys_
         obj.keys_.clear();

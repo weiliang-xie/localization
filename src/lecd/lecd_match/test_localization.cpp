@@ -169,6 +169,20 @@ void localization_thread()
         LaserScanInfo info_;
         info_.seq = pt_lecd.pt_seq;
         info_.ts = pt_lecd.time_stamp;
+        //gt pose
+        Eigen::Vector3d tmp_trans;
+        Eigen::Matrix3d tmp_rot_mat;     
+        Eigen::Quaterniond tmp_rot_q;
+        Eigen::Isometry3d tmp_tf;
+
+        tmp_rot_mat = pt_lecd.gt_pose.block<3,3>(0,0);
+        tmp_trans = pt_lecd.gt_pose.block<3,1>(0,3);
+        tmp_rot_q = Eigen::Quaterniond(tmp_rot_mat);
+        tmp_tf.setIdentity();
+        tmp_tf.rotate(tmp_rot_q);
+        tmp_tf.pretranslate(tmp_trans); // 完成平移部分和旋转部分处理合并
+        info_.sens_pose = tmp_tf;
+        
         ptr_evaluator->pushCurrScanInfo(info_);
         ptr_evaluator->loadNewScan();
 
@@ -185,11 +199,24 @@ void localization_thread()
 
         int has_cand_flag = ptr_contour_db->queryRangedKNN(ptr_cm_tgt, thres_lb_, thres_ub_, ptr_cands, cand_corr, bev_tfs); // 查询检索获取候选
 
+        CHECK(ptr_cands.size() < 2);
+        PredictionOutcome pred_res;
+        if (ptr_cands.empty())
+          pred_res = ptr_evaluator->addPrediction(ptr_cm_tgt, 0.0);
+        else {
+          pred_res = ptr_evaluator->addPrediction(ptr_cm_tgt, cand_corr[0], ptr_cands[0], bev_tfs[0]);  //求解查询帧的prediction outcome
+          if (pred_res.tfpn == PredictionOutcome::TP || pred_res.tfpn == PredictionOutcome::FP) {       //储存检索回环的帧id
+            new_lc_pairs.emplace_back(ptr_cm_tgt->getIntID(), ptr_cands[0]->getIntID());
+            new_lc_tfp.emplace_back(pred_res.tfpn == PredictionOutcome::TP);
+          }
+        }
+
         // 储存描述符
         ptr_contour_db->addScan(ptr_cm_tgt, info_.ts);
         ptr_contour_db->pushAndBalance(info_.seq, info_.ts); // 放入检索树
         // 统计数据清空
         cur_seq++;
+
 
         std::cout << std::endl; // 完成一次识别 打印空行
     }
