@@ -28,18 +28,29 @@ def copy_file(file_path):
     shutil.copy(file_path, new_file_path)  # 复制文件
     return new_file_path
 
+
+def rename_files_in_bulk(folder_path, suffix):
+    """批量重命名文件，确保每个文件都添加指定的后缀"""
+    files = get_sorted_files(folder_path)
+    for file_name in files:
+        file_path = os.path.join(folder_path, file_name)
+        # 直接重命名文件并添加后缀（如果还没有添加）
+        rename_file_with_suffix(file_path, suffix)
+
+
 def rename_file_with_suffix(file_path, suffix):
-    """修改文件名，去掉 'copy_of_' 部分并加上英文后缀"""
+    """检查文件名是否已包含后缀，若未包含则修改文件名并加上后缀"""
     dir_name, file_name = os.path.split(file_path)
     name, ext = os.path.splitext(file_name)
-    
-    # 删除文件名中的 "copy_of_" 部分
-    name = name.replace("copy_of_", "")
-    
-    new_file_name = f"{name}{suffix}{ext}"
-    new_file_path = os.path.join(dir_name, new_file_name)
-    os.rename(file_path, new_file_path)  # 重命名文件
-    return new_file_path
+
+    # 如果文件名已经包含后缀，则不修改
+    if suffix not in name:
+        new_file_name = f"{name}{suffix}{ext}"  # 添加后缀
+        new_file_path = os.path.join(dir_name, new_file_name)
+        os.rename(file_path, new_file_path)  # 重命名文件
+        print(f"文件重命名: {file_name} -> {new_file_name}")
+    else:
+        print(f"文件 {file_name} 已包含后缀 {suffix}，无需修改")
 
 
 def send_file_via_scp(ssh_host, ssh_user, ssh_password, remote_folder, file_path):
@@ -83,6 +94,10 @@ def process_files_with_delay():
     folder_path_map = "./map"  # 本地文件夹路径
     suffix_map = "_map"  # 要添加到文件名的英文后缀
 
+    # 批量重命名文件，确保每个文件都包含所需的后缀
+    rename_files_in_bulk(folder_path_map, suffix_map)
+    rename_files_in_bulk(folder_path_query, suffix_query)
+
     # 获取排序后的文件列表
     sorted_files = get_sorted_files(folder_path_map)
     print(f"按文件名中的数字排序后的文件列表: {sorted_files}")
@@ -91,18 +106,18 @@ def process_files_with_delay():
     for file_name in sorted_files:
         file_path = os.path.join(folder_path_map, file_name)
 
-        # 复制文件到新位置
-        copied_file_path = copy_file(file_path)
-        print(f"文件已复制: {copied_file_path}")        
+        # # 复制文件到新位置
+        # copied_file_path = copy_file(file_path)
+        # print(f"文件已复制: {copied_file_path}")        
         # 修改文件名并加上后缀
-        new_file_path = rename_file_with_suffix(copied_file_path, suffix_map)
+        # new_file_path = rename_file_with_suffix(file_path, suffix_map)
         # print(f"文件已重命名: {new_file_path}")
 
         # 发送修改后的文件
         send_file_via_scp(ssh_host, ssh_user, ssh_password, remote_folder, new_file_path)
 
-        # 删除已经发送的文件
-        delete_file(new_file_path)
+        # # 删除已经发送的文件
+        # delete_file(new_file_path)
 
         # 每个文件之间添加延迟
         # print(f"等待 {delay_between_files} 秒后发送下一个文件...")
@@ -116,18 +131,18 @@ def process_files_with_delay():
     for file_name in sorted_files:
         file_path = os.path.join(folder_path_query, file_name)
         
-        # 复制文件到新位置
-        copied_file_path = copy_file(file_path)
-        print(f"文件已复制: {copied_file_path}")        
+        # # 复制文件到新位置
+        # copied_file_path = copy_file(file_path)
+        # print(f"文件已复制: {copied_file_path}")        
         # 修改文件名并加上后缀
-        new_file_path = rename_file_with_suffix(copied_file_path, suffix_query)
+        # new_file_path = rename_file_with_suffix(file_path, suffix_query)
         # print(f"文件已重命名: {new_file_path}")
 
         # 发送修改后的文件
-        send_file_via_scp(ssh_host, ssh_user, ssh_password, remote_folder, new_file_path)
+        send_file_via_scp(ssh_host, ssh_user, ssh_password, remote_folder, file_path)
 
-        # 删除已经发送的文件
-        delete_file(new_file_path)
+        # # 删除已经发送的文件
+        # delete_file(new_file_path)
 
         # 每个文件之间添加延迟
         # print(f"等待 {delay_between_files} 秒后发送下一个文件...")
