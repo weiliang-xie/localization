@@ -3,3 +3,6 @@ build
 devel
 logs
 .catkin_tools
+data_pre/lecd_data
+data_pre/log
+data_pre/lidar-data
