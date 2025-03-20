@@ -2,6 +2,7 @@ import rosbag
 import numpy as np
 import utm
 import matplotlib.pyplot as plt
+from mpl_toolkits.axes_grid1.inset_locator import inset_axes, mark_inset
 from scipy.interpolate import interp1d
 from scipy.spatial.transform import Rotation as R
 from scipy.signal import savgol_filter
@@ -11,7 +12,8 @@ import pandas as pd
 #*合并/novatel718d/pos和/novatel718d/heading话题，组成位姿，引入速度利用卡尔曼滤波优化数据，生成轨迹图和gps数据文件
 
 # 读取的 rosbag 文件路径
-bag_file = "/home/jtcx/data_set/self/xuda/mapping_2025-03-15-18-30-36.bag"
+bag_file = "/home/jtcx/data_set/self/xuda/mapping_2025-03-15-18-30-36.bag"  #xuda
+# bag_file = "/home/jtcx/data_set/self/factory/mapping_2025-03-18-10-53-21.bag"  #factory
 
 # 存储 GPS 数据
 gnss_data = []
@@ -20,6 +22,7 @@ gps_timestamps = []
 utm_x_list = []
 utm_y_list = []
 speed_list = []  # 速度 (m/s)
+heading_list = []
 
 speed_timestamps = []  # 速度时间戳
 speed_data = []  # 速度 (m/s)
@@ -150,7 +153,7 @@ def apply_kalman_filter_with_velocity(timestamps, x_values, y_values, speed_valu
     return x_smooth, y_smooth
 
 
-
+#————————————————————————————————————提取数据————————————————————————————————————#
 with rosbag.Bag(bag_file, 'r') as bag:
     for topic, msg, t in bag.read_messages():
         timestamp = t.to_sec()  # 直接使用 ROS Bag 记录的时间戳
@@ -191,6 +194,7 @@ utm_y_list = np.array(utm_y_list)
 heading_timestamps = np.array(heading_timestamps, dtype=float)
 heading_data = np.array(heading_data, dtype=float)
 
+#————————————————————————————————————填充对齐数据————————————————————————————————————#
 # **检查航向角数据是否为空**
 if len(heading_timestamps) < 2 or len(heading_data) < 2:
     print("⚠️ 航向角数据不足，无法进行插值！")
@@ -213,15 +217,23 @@ heading_list = np.array(gps_headings)
 utm_x_list = np.array([float('nan') if v is None else v for v in utm_x_list], dtype=float)
 utm_y_list = np.array([float('nan') if v is None else v for v in utm_y_list], dtype=float)
 
+#去除数据开始的nan值
+first_valid_index = np.argmax(~np.isnan(utm_x_list))  # 找到第一个非NaN元素的位置
+# 截取有效数据（删除开头的连续NaN）
+utm_x_list = utm_x_list[first_valid_index:]
+utm_y_list = utm_y_list[first_valid_index:]
+gps_timestamps = gps_timestamps[first_valid_index:]
+speed_list = speed_list[first_valid_index:]
+heading_list = heading_list[first_valid_index:]
+
 nan_indices = np.where(np.isnan(utm_x_list) | np.isnan(utm_y_list))[0]
 
 print(f"缺失的数据点数量为: {nan_indices.size}")
 
 # 利用速度推算插值填补缺失的GPS点
 for idx in nan_indices:
-    if 0 < idx < len(utm_x_list) - 1:
+    if 0 < idx < len(utm_x_list):
         dt = gps_timestamps[idx] - gps_timestamps[idx - 1]  # 计算时间间隔
-        # print(f"计算插值时间间隔,index: {idx}, dt: {dt} stamp_rear: {gps_timestamps[idx]}, stamp_front: {gps_timestamps[idx - 1]}")
         if dt > 0:
             heading_rad = np.radians(heading_list[idx - 1])  # 转换为弧度
             utm_x_list[idx] = utm_x_list[idx - 1] + speed_list[idx - 1] * dt * np.sin(heading_rad)
@@ -234,25 +246,50 @@ for idx in nan_indices:
             speed_list = np.delete(speed_list, idx)
             heading_list = np.delete(heading_list, idx)
             
-    else:
-        utm_x_list = np.delete(utm_x_list, idx)
-        utm_y_list = np.delete(utm_y_list, idx)
-        gps_timestamps = np.delete(gps_timestamps, idx)
-        speed_list = np.delete(speed_list, idx)
-        heading_list = np.delete(heading_list, idx)
+    # else:
+        # utm_x_list = np.delete(utm_x_list, idx)
+        # utm_y_list = np.delete(utm_y_list, idx)
+        # gps_timestamps = np.delete(gps_timestamps, idx)
+        # speed_list = np.delete(speed_list, idx)
+        # heading_list = np.delete(heading_list, idx)
 
 
 #判断是否仍有nan值
-if np.any(np.isnan(utm_x_list)) or np.any(np.isnan(utm_y_list)):
-    raise ValueError("插值过后的数据仍包含 NaN 值")
+# if np.any(np.isnan(utm_x_list)) or np.any(np.isnan(utm_y_list)):
+#     raise ValueError("插值过后的数据仍包含 NaN 值")
+
+# 判断并打印 NaN 的索引
+nan_indices_x = np.where(np.isnan(utm_x_list))[0]  # 找到 X 中 NaN 的索引
+nan_indices_y = np.where(np.isnan(utm_y_list))[0]  # 找到 Y 中 NaN 的索引
+
+if nan_indices_x.size > 0 or nan_indices_y.size > 0:
+    error_message = "插值过后的数据仍包含 NaN 值\n"
+    error_message += f"NaN 索引: {nan_indices_x.tolist()}\n"
+    raise ValueError(error_message)
+else:
+    print("✅ 数据无 NaN 值")
 
 print(f"插值后的数据点数量为: {utm_x_list.size}")
 
+
+#————————————————————————————————————去除异常点————————————————————————————————————#
+# 获取排序索引
+sorted_indices = np.argsort(gps_timestamps)
+
+# 使用排序索引对所有数组排序
+gps_timestamps = gps_timestamps[sorted_indices]
+utm_x_list = utm_x_list[sorted_indices]
+utm_y_list = utm_y_list[sorted_indices]
+speed_list = speed_list[sorted_indices]
+heading_list = heading_list[sorted_indices]
+
 abnormal_indices = []
+repeat_indices = []
 while 1:
     #去除异常点
-    # 设置合理的最大速度（单位：m/s），例如：车辆最大速度 50 m/s
-    MAX_VELOCITY = 3  # 可以根据实际情况调整
+    # 设置合理的速度（单位：m/s）
+    MAX_VELOCITY = 2  # 可以根据实际情况调整
+    MIN_VELOCITY = 0.3  # 可以根据实际情况调整
     # 计算相邻点之间的位移和时间间隔
     dx = np.diff(utm_x_list)  # X 方向的位移
     dy = np.diff(utm_y_list)  # Y 方向的位移
@@ -262,10 +299,14 @@ while 1:
     velocity = distance / dt  # 计算速度
     # 找出速度异常的点（超出 MAX_VELOCITY 的索引）
     abnormal_indices = np.where(velocity > MAX_VELOCITY)[0] + 1  # +1 因为 diff() 计算的是前后点的差值
+    repeat_indices = np.where(velocity < MIN_VELOCITY)[0] + 1  # +1 因为 diff() 计算的是前后点的差值
+    # 合并并去重排序
+    combined_indices = np.union1d(abnormal_indices, repeat_indices)
 
     print(f"🚨 发现 {len(abnormal_indices)} 个异常点（速度过大）：{abnormal_indices}")
+    print(f"🚨 发现 {len(repeat_indices)} 个重复点（速度过小）：{repeat_indices}")
     # **去除异常点**
-    valid_indices = np.setdiff1d(np.arange(len(utm_x_list)), abnormal_indices)  # 仅保留正常数据
+    valid_indices = np.setdiff1d(np.arange(len(utm_x_list)), combined_indices)  # 仅保留正常数据
 
     utm_x_list = utm_x_list[valid_indices]
     utm_y_list = utm_y_list[valid_indices]
@@ -277,12 +318,40 @@ while 1:
     if len(abnormal_indices) == 0:
         break
 
+#————————————————————————————————————去除偏航点 xuda————————————————————————————————————#
+# 异常点的坐标范围 (根据红框的坐标估计)
+x_min, x_max = 802244, 802256
+y_min, y_max = 2494440, 2494454
+
+# 找出不在异常范围内的索引
+abnormal_indices_ = np.where((utm_x_list >= x_min) & (utm_x_list <= x_max) &
+                             (utm_y_list >= y_min) & (utm_y_list <= y_max))[0]
+
+valid_indices_ = np.setdiff1d(np.arange(len(utm_x_list)), abnormal_indices_)  # 仅保留正常数据
+
+
+print(f"🚨 发现 {len(abnormal_indices_)} 个异常点：{abnormal_indices_}")
+
+
+# 根据索引筛选出正常数据
+utm_x_list = utm_x_list[valid_indices_]
+utm_y_list = utm_y_list[valid_indices_]
+gps_timestamps = gps_timestamps[valid_indices_]
+speed_list = speed_list[valid_indices_]
+heading_list = heading_list[valid_indices_]
+
+print(f"去除异常点后的数据点数量为: {utm_x_list.size}")
+
+
+#————————————————————————————————————卡尔曼滤波————————————————————————————————————#
+
 utm_x_list_kalman, utm_y_list_kalman = apply_kalman_filter_with_velocity(gps_timestamps, utm_x_list, utm_y_list, speed_list, heading_list)
+# utm_x_list_kalman, utm_y_list_kalman = utm_x_list, utm_y_list
+
+# print(f"卡尔曼滤波后的数据点数量为: {utm_x_list_kalman.size}")
 
 
-print(f"卡尔曼滤波后的数据点数量为: {utm_x_list_kalman.size}")
-
-#数据保存
+#————————————————————————————————————数据保存————————————————————————————————————#
 # **将 UTM 坐标转换回经纬度**
 # **选取轨迹的第一个点进行 UTM 转换**
 if len(utm_x_list_kalman) > 0:
@@ -293,8 +362,6 @@ else:
     raise ValueError("❌ UTM 数据为空！")
 # **转换 UTM 坐标到 经纬度**
 lat_lon_list = [utm.to_latlon(x, y, utm_zone, northern=True) for x, y in zip(utm_x_list_kalman, utm_y_list_kalman)]
-
-
 
 # **构建 CSV 数据**
 csv_data = {
@@ -309,16 +376,15 @@ csv_data = {
 df = pd.DataFrame(csv_data)
 
 # **保存 CSV 文件**
-csv_filename = "/home/jtcx/remote_control/code/localization/data_pre/gtpose/xuda/gps_data.csv"
+csv_filename = "/home/jtcx/remote_control/code/localization/data_pre/gtpose/xuda/gps_data.csv"  #xuda
+# csv_filename = "/home/jtcx/remote_control/code/localization/data_pre/gtpose/xuda/gps_data_only.csv"  #xuda
+# csv_filename = "/home/jtcx/remote_control/code/localization/data_pre/gtpose/factory/gps_data.csv"  #factory
 df.to_csv(csv_filename, index=False)
 
 print(f"✅ 轨迹数据已保存为 CSV 文件: {csv_filename}")
 
-# 计算相对坐标（对齐起点）
-x = utm_x_list_kalman - utm_x_list_kalman[0]
-y = utm_x_list_kalman - utm_x_list_kalman[0]
 
-
+#————————————————————————————————————绘制图表————————————————————————————————————#
 
 # 绘制原始轨迹 vs. 优化轨迹
 plt.figure(figsize=(10, 6))
@@ -329,5 +395,22 @@ plt.ylabel("Y Position (m)")
 plt.title("Optimized GNSS Trajectory Visualization")
 plt.legend()
 plt.grid()
-plt.savefig("/home/jtcx/ICRA/exper_data_1.0/thesis/pdf/gps_path.pdf", format="pdf", bbox_inches="tight")
+
+# # 🔍 添加放大图
+# ax_inset = inset_axes(plt.gca(), width="30%", height="30%", loc='upper right')
+
+# # 在放大图中绘制相同轨迹并缩放指定区域
+# ax_inset.plot(utm_x_list_kalman, utm_y_list_kalman, marker=".", linestyle="-", color="green")
+
+# # 设置放大区域的坐标范围（根据数据调整）
+# ax_inset.set_xlim(802320, 802340)
+# ax_inset.set_ylim(2494442, 2494462)
+# # 🔹 去除放大图的坐标轴
+# ax_inset.axis("off")
+# # 🔹 在主图中标注放大区域并添加指引线
+# mark_inset(plt.gca(), ax_inset, loc1=2, loc2=4, fc="none", ec="red", lw=1.5)
+
+plt.savefig("/home/jtcx/ICRA/exper_data_1.0/thesis/pdf/gps_xuda_path.pdf", format="pdf", bbox_inches="tight")    #xuda
+# plt.savefig("/home/jtcx/ICRA/exper_data_1.0/thesis/pdf/gps_xuda_path-kfbefore.pdf", format="pdf", bbox_inches="tight")    #xuda
+# plt.savefig("/home/jtcx/ICRA/exper_data_1.0/thesis/pdf/gps_factory_path.pdf", format="pdf", bbox_inches="tight")    #factory
 plt.show()

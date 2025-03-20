@@ -137,13 +137,13 @@ struct GMMPair
                 for (int ti = 0; ti < ellipses_tgt[li].size(); ti++)
                 {
                     Eigen::Matrix<double, 2, 1> delta_mu = T_init * ellipses_src[li][si].mu_ - ellipses_tgt[li][ti].mu_; // 计算初始位姿下的两帧两点的偏差向量
-                    // //加权阈值
-                    // double auto_dis_w_ = 0;
-                    // auto_dis_w_ = 1.5 * (ellipses_tgt[li][si].w_ < ellipses_tgt[li][ti].w_ ? ellipses_tgt[li][si].w_ : ellipses_tgt[li][ti].w_) / (ellipses_tgt[li][si].w_ > ellipses_tgt[li][ti].w_ ? ellipses_tgt[li][si].w_ : ellipses_tgt[li][ti].w_);
-                    // auto_dis_w_ += 1.5 * (1.0 - abs(ellipses_src[li][si].eccen_ - ellipses_src[li][ti].eccen_));
-                    // auto_dis_w_ += 1.0;
-                    // if (delta_mu.norm() < auto_dis_w_ * (max_majax_src[li][si] + max_majax_tgt[li][ti])) {  // close enough to correlate  距离相差两帧第二特征值的和的三倍以上则不考虑
-                    if (delta_mu.norm() < 2.0 * (max_majax_src[li][si] + max_majax_tgt[li][ti]))
+                    //加权阈值 LECD
+                    double auto_dis_w_ = 0;
+                    auto_dis_w_ = 1.5 * (ellipses_tgt[li][si].w_ < ellipses_tgt[li][ti].w_ ? ellipses_tgt[li][si].w_ : ellipses_tgt[li][ti].w_) / (ellipses_tgt[li][si].w_ > ellipses_tgt[li][ti].w_ ? ellipses_tgt[li][si].w_ : ellipses_tgt[li][ti].w_);
+                    auto_dis_w_ += 1.5 * (1.0 - abs(ellipses_src[li][si].eccen_ - ellipses_src[li][ti].eccen_));
+                    auto_dis_w_ += 1.0;
+                    if (delta_mu.norm() < auto_dis_w_ * (max_majax_src[li][si] + max_majax_tgt[li][ti]))  // close enough to correlate  距离相差两帧第二特征值的和的三倍以上则不考虑
+                    // if (delta_mu.norm() < 2.0 * (max_majax_src[li][si] + max_majax_tgt[li][ti])) //CC
                     { // close enough to correlate  距离相差两帧第二特征值的和的三倍以上则不考虑
                         // if(jump_level != 1)
                         // test_selected_pair_idx_[li].emplace_back(si, ti);
@@ -311,8 +311,8 @@ struct GMMPair
                 Eigen::Matrix<T, 2, 1> new_mu = R * ellipses_src[li][pr.first].mu_ + t - ellipses_tgt[li][pr.second].mu_; // 转换后的中心加上tgt的中心
 
                 T qua = -0.5 * new_mu.transpose() * new_cov.inverse() * new_mu;
-                cost[0] += -ellipses_tgt[li][pr.second].w_ * ellipses_src[li][pr.first].w_ * 1.0 / sqrt(new_cov.determinant()) *
-                           exp(qua); // 用高斯分布公式计算残差
+                // cost[0] += -ellipses_tgt[li][pr.second].w_ * ellipses_src[li][pr.first].w_ * 1.0 / sqrt(new_cov.determinant()) *
+                //            exp(qua); // 用高斯分布公式计算残差 CC
                 // add_opimite += new_mu.norm() / T(3.0 * (max_majax_src[li][pr.first] + max_majax_tgt[li][pr.second]));
                 // cost[0] += -ellipses_tgt[li][pr.second].w_ * ellipses_src[li][pr.first].w_ * 0.45 * 1.0 / sqrt(new_cov.determinant()) *
                 //            exp(qua) + 0.55 * add_opimite;      //残差使用GMM的L2距离的第二项，用高斯分布公式计算残差 + 中心L2
@@ -320,10 +320,10 @@ struct GMMPair
                 //            exp(qua);      //残差使用GMM的L2距离的第二项，用高斯分布公式计算残差
                 // cost[0] += 1.0 / sqrt(new_cov.determinant()) * exp(qua);      //残差使用GMM的L2距离的第二项，用高斯分布公式计算残差 去除原权重
 
-                // 面积和离心率作为权重
-                //  double cell_cnt_w_ = (ellipses_src[li][pr.first].w_ < ellipses_tgt[li][pr.second].w_ ? ellipses_src[li][pr.first].w_ : ellipses_tgt[li][pr.second].w_) / (ellipses_src[li][pr.first].w_ > ellipses_tgt[li][pr.second].w_ ? ellipses_src[li][pr.first].w_ : ellipses_tgt[li][pr.second].w_);
-                //  double eccen_w_ = 1.0 - abs(ellipses_src[li][pr.first].eccen_ - ellipses_tgt[li][pr.second].eccen_);
-                //  cost[0] += -cell_cnt_w_ * eccen_w_ * 1.0 / sqrt(new_cov.determinant()) * exp(qua);      //残差使用GMM的L2距离的第二项，用高斯分布公式计算残差
+                // 面积和离心率作为权重 LECD
+                 double cell_cnt_w_ = (ellipses_src[li][pr.first].w_ < ellipses_tgt[li][pr.second].w_ ? ellipses_src[li][pr.first].w_ : ellipses_tgt[li][pr.second].w_) / (ellipses_src[li][pr.first].w_ > ellipses_tgt[li][pr.second].w_ ? ellipses_src[li][pr.first].w_ : ellipses_tgt[li][pr.second].w_);
+                 double eccen_w_ = 1.0 - abs(ellipses_src[li][pr.first].eccen_ - ellipses_tgt[li][pr.second].eccen_);
+                 cost[0] += -cell_cnt_w_ * eccen_w_ * 1.0 / sqrt(new_cov.determinant()) * exp(qua);      //残差使用GMM的L2距离的第二项，用高斯分布公式计算残差
                 //  cost[0] += -eccen_w_ * 1.0 / sqrt(new_cov.determinant()) * exp(qua);      //残差使用GMM的L2距离的第二项，用高斯分布公式计算残差
                 //  cost[0] += -1.0 / sqrt(new_cov.determinant()) * exp(qua);      //残差使用GMM的L2距离的第二项，用高斯分布公式计算残差
                 //  cost[0] += -ellipses_tgt[li][pr.second].w_ * ellipses_src[li][pr.first].w_ * 1.0 / sqrt(new_cov.determinant()) * exp(qua);      //用高斯分布公式计算残差
@@ -561,4 +561,4 @@ class BEVCorrelation
 {
 };
 
-#endif
+#endif  // CORRELATION_H

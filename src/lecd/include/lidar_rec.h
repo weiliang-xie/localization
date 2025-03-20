@@ -12,6 +12,12 @@
 #include <mutex>
 #include <thread>
 #include <condition_variable>
+#include <sys/time.h>
+#include "tools/bm_util.h"
+
+#define STAMP_NUM 7         //时间戳个数
+
+extern SequentialTimeProfiler stp;
 
 // 定义 MQTT Broker 地址和话题
 const std::string SERVER_ADDRESS{"tcp://8.138.105.82:1883"};
@@ -64,6 +70,8 @@ struct ECD {
     float vol3_mean_{};     //高度均值 用于统计数据计算中
     bool ecc_feat_ = false;   // eccentricity large enough (with enough cell count)   椭圆有效（足够大，离心率足够大）判断    
 
+    //CC 填充 /LECD
+    // V2F CC_used_data;
 
     // 为 ECD 定义序列化函数
     friend void to_json(nlohmann::json& j, const ECD& obj) {
@@ -76,7 +84,8 @@ struct ECD {
             {"eig_vecs_", obj.eig_vecs_},
             {"eccen_", obj.eccen_},
             {"vol3_mean_", obj.vol3_mean_},
-            {"ecc_feat_", obj.ecc_feat_}
+            {"ecc_feat_", obj.ecc_feat_},
+            // {"CC_used_data", obj.CC_used_data}      //CC /LECD
         };
     }
 
@@ -108,6 +117,16 @@ struct ECD {
             }
         }
 
+        // // 处理 CC_used_data (V2F 类型) CC 填充 /LECD
+        // if (j.contains("CC_used_data")) {
+        //     std::vector<std::vector<float>> eig_vals_vec = j.at("CC_used_data").get<std::vector<std::vector<float>>>();
+        //     if (eig_vals_vec.size() == 2 && eig_vals_vec[0].size() == 1 && eig_vals_vec[1].size() == 1) {
+        //         obj.CC_used_data(0) = eig_vals_vec[0][0]; // 取出第一个值
+        //         obj.CC_used_data(1) = eig_vals_vec[1][0]; // 取出第二个值
+        //     } else {
+        //         throw std::runtime_error("Invalid CC_used_data format");
+        //     }
+        // }
 
         // 处理 eig_vecs_ (M2F 类型)
         if (j.contains("eig_vecs_")) {
@@ -128,11 +147,17 @@ struct ECD {
 // 定义 LECD 结构体
 struct LECD{
     std::vector<ECD> ellipse_gp;
-    std::vector<std::vector<std::array<float, 10>>> keys_;   //检索键值
+    std::vector<std::vector<std::array<float, 12>>> keys_;   //检索键值 前两个是层级和序号
     //辅助数据 点云序号，椭圆数量等
     int16_t pt_seq;     //点云id
     int16_t lecd_nums;  //椭圆数量
+    std::string pt_type;  //点云类型
     double time_stamp;  //时间戳
+    long rec_stamp;    //接收时间戳，计算耗时用
+    long tran_stamp;    //接收时间戳，计算耗时用
+    long compress_stamp;   //完成压缩时间戳，计算耗时用
+
+    
 
     //位姿真值
     Eigen::Matrix<double, 3, 4> gt_pose; 
@@ -142,9 +167,13 @@ struct LECD{
             {"pt_seq",obj.pt_seq},
             {"lecd_nums",obj.lecd_nums},
             {"time_stamp",obj.time_stamp},
+            {"pt_type",obj.pt_type},
             {"ellipse_gp", obj.ellipse_gp},  // 序列化 ellipse_gp
             {"keys_", nlohmann::json::array()},    // 初始化 keys_ 的 JSON 数组
-            {"gt_pose", obj.gt_pose}
+            {"gt_pose", obj.gt_pose},
+            {"rec_stamp", obj.rec_stamp},
+            {"tran_stamp", obj.tran_stamp},
+            {"compress_stamp", obj.compress_stamp}
         };
     
         // 序列化 keys_
@@ -162,8 +191,12 @@ struct LECD{
         // 解析 ellipse_gp
         j.at("pt_seq").get_to(obj.pt_seq);
         j.at("lecd_nums").get_to(obj.lecd_nums);
+        j.at("pt_type").get_to(obj.pt_type);
         j.at("time_stamp").get_to(obj.time_stamp);
         j.at("ellipse_gp").get_to(obj.ellipse_gp);
+        j.at("rec_stamp").get_to(obj.rec_stamp);
+        j.at("tran_stamp").get_to(obj.tran_stamp);
+        j.at("compress_stamp").get_to(obj.compress_stamp);
 
         if (j.contains("gt_pose")) {
             std::vector<std::vector<double>> gt_pose_vec = j.at("gt_pose").get<std::vector<std::vector<double>>>();
@@ -178,9 +211,9 @@ struct LECD{
         // 解析 keys_
         obj.keys_.clear();
         for (const auto& outer_array : j.at("keys_")) {
-            std::vector<std::array<float, 10>> outer_vector;
+            std::vector<std::array<float, 12>> outer_vector;
             for (const auto& inner_array : outer_array) {
-                std::array<float, 10> inner{};
+                std::array<float, 12> inner{};
                 for (size_t i = 0; i < inner.size(); ++i) {
                     inner[i] = inner_array.at(i).get<float>();
                 }
@@ -221,6 +254,8 @@ public:
     }
 };
 
+extern std::mutex mtx;  // 互斥锁
+
 // 回调类，用于处理接收到的消息
 class my_callback : public mqtt::callback {
     mqtt::async_client& client_;
@@ -232,6 +267,7 @@ public:
         : client_(client), sub_topic_(sub_topic), queue_(queue) {}
 
     void message_arrived(mqtt::const_message_ptr msg) override {
+        mtx.lock();
         try {
             // 解析消息的 payload
             std::string payload = msg->get_payload();
@@ -244,12 +280,17 @@ public:
             std::cout << "Message received on topic: " << msg->get_topic() << std::endl;
             // std::cout << "Payload: " << payload << std::endl;
 
+            //存入接收时间戳
+            // pre_times.pushstamps(received_data.pt_seq, 3);
+            stp.pushstamps(received_data.pt_seq, received_data.rec_stamp, received_data.compress_stamp, received_data.tran_stamp);
+
             //存入队列
             queue_.push(received_data);
 
         } catch (const std::exception& e) {
             std::cerr << "Error parsing or processing message: " << e.what() << std::endl;
         }
+        mtx.unlock();
     }
 
     void connected(const std::string& cause) override {
@@ -267,4 +308,4 @@ public:
 void mqtt_receiver_thread();
 extern ThreadSafeQueue lecd_queue;
 
-#endif
+#endif  // LIDAR_REC_H

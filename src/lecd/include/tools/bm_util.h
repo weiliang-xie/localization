@@ -15,6 +15,7 @@
 #include <numeric>
 #include <map>
 #include <utility>
+#include <sys/time.h>
 
 class TicToc {
 public:
@@ -60,6 +61,9 @@ protected:
   int cnt_loops = 0;
   size_t max_len = 5;   // min name length
   std::string desc = "";  // short description
+
+  std::unordered_map<int, std::array<long, 4>> cp_stamps;    //压缩部分时间戳
+
 public:
 
   SequentialTimeProfiler() = default;
@@ -101,19 +105,34 @@ public:
 
   /// record and reset timer
   /// \param name The name of a log entry
-  //记录各个步骤的时间并保存，传入各个步骤的名字 并返回步骤耗时
-  void record(const std::string &name, double &dt_curr) {
-    const double dt = clk.toc();
+  // //记录各个步骤的时间并保存，传入各个步骤的名字 并返回步骤耗时
+  // void record(const std::string &name, double &dt_curr) {
+  //   const double dt = clk.toc();
+  //   auto it = logs.find(name);
+  //   if (it == logs.end()) {
+  //     logs[name] = OneLog(static_cast<int>(logs.size()), 1, dt);
+  //     max_len = std::max(max_len, name.length());
+  //   } else {
+  //     it->second.cnt++;
+  //     it->second.samps += dt;
+  //     it->second.autocorrs += dt * dt;
+  //   }
+  //   dt_curr = dt;
+  //   clk.tic();  // auto reset, useful for sequential timing.
+  // }
+
+  //记录各个步骤的时间并保存，传入各个步骤的名字和耗时
+  void record(const std::string &name, double &dt_dur) {
+    // const double dt = clk.toc();
     auto it = logs.find(name);
-    if (it == logs.end()) {
-      logs[name] = OneLog(static_cast<int>(logs.size()), 1, dt);
-      max_len = std::max(max_len, name.length());
+    if (it == logs.end()) {   //log里面不存在该步骤名称 则新建一个
+      logs[name] = OneLog(static_cast<int>(logs.size()), 1, dt_dur);
+      max_len = std::max(max_len, name.length());   //更新最大步骤名称长度
     } else {
       it->second.cnt++;
-      it->second.samps += dt;
-      it->second.autocorrs += dt * dt;
+      it->second.samps += dt_dur;   //求当前步骤在每次循环的时间和
+      it->second.autocorrs += dt_dur * dt_dur;
     }
-    dt_curr = dt;
     clk.tic();  // auto reset, useful for sequential timing.
   }
 
@@ -218,6 +237,45 @@ public:
             "*", "*"
     );
     std::fclose(fp);
+  }
+
+  //ntp时间戳部分，用于接收队列前储存ntp时间戳
+  long getCurrentStamp(){
+      struct timeval tv;
+      long result;
+      gettimeofday(&tv, NULL); // 获取当前时间
+      result = tv.tv_sec * 1000 * 1000 + tv.tv_usec;       
+      return result; 
+  }
+    //传入 点云序号 时间戳，时间戳序号
+  void pushstamps(int pt_id, long stamp_1, long stamp_2, long stamp_3)
+  {
+    // 通过 id 检索数据
+    auto found = cp_stamps.find(pt_id);
+    if (found == cp_stamps.end()) {
+      std::array<long, 4> arr = {};
+      arr[0] = stamp_1;
+      arr[1] = stamp_2;
+      arr[2] = stamp_3;
+      arr[3] = getCurrentStamp();
+      cp_stamps[pt_id] = arr;
+    }     
+  }
+
+  void compressrecord(int pt_id)
+  {
+    auto found = cp_stamps.find(pt_id);
+    if (found != cp_stamps.end()) {    
+      double dur_;
+      dur_ = (found->second[1] - found->second[0])  > 0 ? (found->second[1] - found->second[0]) / 1000000.0 : 0;
+      record("compress",dur_);
+
+      // dur_ = (found->second[2] - found->second[1])  > 0 ? (found->second[2] - found->second[1]) / 1000000.0 : 0;
+      // record("cp queue",dur_);
+
+      dur_ = (found->second[3] - found->second[1])  > 0 ? (found->second[3] - found->second[1]) / 1000000.0 : 0;
+      record("transmit",dur_);
+    }
   }
 };
 

@@ -13,7 +13,10 @@
 #include <nav_msgs/Odometry.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <pcl_conversions/pcl_conversions.h>
+#include <mutex>
 // #include <matplotlibcpp.h>
+
+std::mutex mtx;  // 互斥锁
 
 // namespace plt = matplotlibcpp;
 
@@ -28,6 +31,7 @@ ContourDBConfig db_config;
 ContourManagerConfig cm_config;
 CandidateScoreEnsemble thres_lb_, thres_ub_; // check thresholds variable query parameters 查询阈值 分上界下界
 
+std::string fpath_outcome_sav;
 pcl::PointXYZRGB vec2point(const Eigen::Vector3d &vec, std::vector<std::uint8_t> &rgb)
 {
     pcl::PointXYZRGB pi;
@@ -121,8 +125,8 @@ void loadConfig(const std::string &config_fpath, std::string &sav_path)
     yl.loadOneConfig({"thres_ub_", "area_perc"}, thres_ub_.sim_post.area_perc);
     yl.loadOneConfig({"thres_ub_", "neg_est_dist"}, thres_ub_.sim_post.neg_est_dist);
     yl.loadSeqConfig({"LECDManagerConfig", "lv_grads_"}, cm_config.lv_grads_);
-    yl.loadOneConfig({"LECDManagerConfig", "reso_row_"}, cm_config.reso_row_);
-    yl.loadOneConfig({"LECDManagerConfig", "reso_col_"}, cm_config.reso_col_);
+    // yl.loadOneConfig({"LECDManagerConfig", "reso_row_"}, cm_config.reso_row_);
+    // yl.loadOneConfig({"LECDManagerConfig", "reso_col_"}, cm_config.reso_col_);
     yl.loadOneConfig({"LECDManagerConfig", "n_row_"}, cm_config.n_row_);
     yl.loadOneConfig({"LECDManagerConfig", "n_col_"}, cm_config.n_col_);
     yl.loadOneConfig({"LECDManagerConfig", "lidar_height_"}, cm_config.lidar_height_);
@@ -151,6 +155,7 @@ void localization_thread()
     //   BatchBinSpinner o(nh); // 这个是主要的数据结构 初始化仅传递一个ros句柄
     int cnt = 0;
     int cur_seq = 0;
+    int no_data_cnt = 0;
 
     // TODO 读取地图 待添加
     
@@ -159,11 +164,34 @@ void localization_thread()
     {
         // 判断队列是否为空
         if (lecd_queue.is_empty())
-        {
+        {               
+            std::this_thread::sleep_for(std::chrono::milliseconds(1)); // 模拟处理延迟
+            if(lecd_queue.is_empty())
+                no_data_cnt++;
+
+            if(no_data_cnt >= 100000)
+            {
+                ptr_evaluator->savePredictionResults(fpath_outcome_sav);
+
+                //处理时间耗时
+                stp.printScreen(true);      //打印最后的耗时统计
+                // std::array<double, STAMP_NUM - 1> avg_times;
+                // avg_times = pre_times.avgtimes();
+                break;
+            }
             continue;
+        }else{
+            no_data_cnt = 0;
         }
 
         LECD pt_lecd = lecd_queue.pop();
+
+        // CHECK_EQ(pt_lecd.pt_seq, cur_seq);      //检查点云帧序号
+        stp.lap(); 
+
+        //转移车端处理时间戳
+        // pre_times.pushstamps(pt_lecd.pt_seq, 0, pt_lecd.rec_stamp, pt_lecd.compress_stamp, pt_lecd.tran_stamp);
+        stp.compressrecord(pt_lecd.pt_seq);
 
         // 存储点云信息
         LaserScanInfo info_;
@@ -182,6 +210,7 @@ void localization_thread()
         tmp_tf.rotate(tmp_rot_q);
         tmp_tf.pretranslate(tmp_trans); // 完成平移部分和旋转部分处理合并
         info_.sens_pose = tmp_tf;
+        info_.fpath = "x";
         
         ptr_evaluator->pushCurrScanInfo(info_);
         ptr_evaluator->loadNewScan();
@@ -189,6 +218,7 @@ void localization_thread()
         std::cout << "current lecd data index: " << ptr_evaluator->getCurrScanInfo().seq << " nums: " << pt_lecd.lecd_nums << std::endl;
 
         // lecd->lecd_views
+        stp.start();
         std::shared_ptr<ContourManager> ptr_cm_tgt = LECDtoViews(pt_lecd, cm_config, cur_seq);
         // 定位模块
         std::vector<std::pair<int, int>> new_lc_pairs;
@@ -214,20 +244,36 @@ void localization_thread()
         // 储存描述符
         ptr_contour_db->addScan(ptr_cm_tgt, info_.ts);
         ptr_contour_db->pushAndBalance(info_.seq, info_.ts); // 放入检索树
+
+        //存放完成定位时间戳
+        // pre_times.pushstamps(pt_lecd.pt_seq, 6);
+        
+        // 打印时间戳
+        // std::cout << "index: " << pt_lecd.pt_seq << " stamps: ";
+        // for(auto& stamp_ : pre_times.stamps[pt_lecd.pt_seq])
+        // {
+        //     std::cout << stamp_ << " ";
+        // }
+        // std::cout << std::endl;
+
         // 统计数据清空
         cur_seq++;
 
-
         std::cout << std::endl; // 完成一次识别 打印空行
     }
-    // std::this_thread::sleep_for(std::chrono::milliseconds(100)); // 模拟处理延迟
 }
 
 int main(int argc, char **argv)
 {
+
+    struct timeval tv;
+    gettimeofday(&tv, NULL); // 获取当前时间
+    long microseconds = tv.tv_sec * 1000 * 1000 + tv.tv_usec;
+    std::cout << "Current time (in microseconds): " << microseconds << " long size: " << sizeof(long) << std::endl;
+
     std::string config_path = "/home/jtcx/remote_control/code/localization/src/lecd/include/config.yaml";
-    std::string save_path = "/home/jtcx/remote_control/code/localization/src/lecd/include/";
-    loadConfig(config_path, save_path);
+    loadConfig(config_path, fpath_outcome_sav);
+    stp = SequentialTimeProfiler(fpath_outcome_sav);    //初始化顺序时间档案器
     // 创建 MQTT 接收线程
     std::thread mqtt_thread(mqtt_receiver_thread);
     // 创建定位线程

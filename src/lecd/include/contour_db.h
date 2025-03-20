@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <set>
 #include <unordered_set>
+#include <mutex>
 
 #include <nanoflann.hpp>
 #include <utility>
@@ -16,6 +17,7 @@
 
 #include "tools/bm_util.h"
 
+// extern std::mutex mtx;  // 互斥锁
 extern SequentialTimeProfiler stp;
 
 // typedef Eigen::Matrix<KeyFloatType, 4, 1> tree_key_t;
@@ -547,7 +549,7 @@ struct CandidateManager
         DCHECK(flow_valve < 1); // 流程标志
         flow_valve++;
         GMMOptConfig gmm_config;
-        // printf("Tidy up pose %lu candidates.\n", candidates_.size());
+        printf("Tidy up pose %lu candidates.\n", candidates_.size());
 
         int cnt_to_rm = 0;
 
@@ -812,7 +814,6 @@ public:
                 { // 判断是否有key
                     // 1. query
                     clk.tic();
-                    stp.start();
                     std::vector<std::pair<IndexOfKey, KeyFloatType>> tmp_res;
                     //          layer_db_[ll].layerRangeSearch(q_keys[seq], 3.0, tmp_res);  // 5.0: squared norm
                     // calculate max query distance from key bits:    //计算最大查询距离
@@ -838,7 +839,6 @@ public:
                     //          layer_db_[ll].layerKNNSearch(q_keys[seq], 100, dist_ub, tmp_res);
                     layer_db_[ll].layerKNNSearch(q_keys[seq], cfg_.nnk_, dist_ub, tmp_res); // 利用当前anchor的key值进行检索，更新检索返回anchor的id-dist对：tmp_res
                     //          layer_db_[ll].layerKNNSearch(q_keys[seq], 200, 2000.0, tmp_res);
-                    stp.record("KNN search");
                     t1 += clk.toc();
 
                     // printf("KNN Search remianing: %lu.\n", tmp_res.size());
@@ -848,7 +848,7 @@ public:
                     printf("L:%d S:%d. Found in range: %lu\n", q_levels_[ll], seq, tmp_res.size());
 #endif
                     // 2. check
-                    stp.start();
+                    // stp.start();
                     // 遍历检索返回的数据  50对匹配对 通过筛选的生成候选
                     for (const auto &sear_res : tmp_res)
                     {
@@ -859,28 +859,36 @@ public:
                                                                        cfg_.cont_sim_cfg_); // 过滤匹配对，1.统计数据相似度 2.BCI匹配 3.外围椭圆的统数和长轴投影匹配
                         t2 += clk.toc();
                     }
-                    stp.record("Constell");
+                    // stp.record("Constell");
                 }
             }
         }
+
+        stp.record("KNN search");
+
 
         // find the best ones with fine-tuning:  筛选出最好的匹配对
         std::vector<std::shared_ptr<const ContourManager>> res_cand_ptr;
         std::vector<double> res_corr;
         std::vector<Eigen::Isometry2d> res_T;
 
+        // pre_times.pushstamps(q_ptr->getIntID(), 5);
+
+        mtx.lock(); 
         clk.tic();
         stp.start();
         cand_mng.tidyUpCandidates();
         int num_best_cands = cand_mng.fineOptimize(cfg_.max_fine_opt_, res_cand_ptr, res_corr, res_T);
         stp.record("L2 opt");
-        t5 += clk.toc();
+        // t5 += clk.toc();
+        std::cout << "L2 time consuming: " << clk.toc() << std::endl;
+        mtx.unlock(); 
 
         if (num_best_cands)
         {
-            printf("After check 1: %d\n", cand_mng.cand_aft_check1);
-            printf("After check 2: %d\n", cand_mng.cand_aft_check2);
-            printf("After check 3: %d\n", cand_mng.cand_aft_check3);
+            // printf("After check 1: %d\n", cand_mng.cand_aft_check1);
+            // printf("After check 2: %d\n", cand_mng.cand_aft_check2);
+            // printf("After check 3: %d\n", cand_mng.cand_aft_check3);
         }
         else
         {
@@ -944,4 +952,4 @@ public:
     }
 };
 
-#endif
+#endif  // CONTOUR_DB_H

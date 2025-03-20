@@ -34,8 +34,8 @@ LECDManagerConfig:
   #lv_grads_: [ 1.5, 2, 2.5, 3, 3.5, 4 ]
 
   # TODO: reso other than 1.0
-  reso_row_: 1.0
-  reso_col_: 1.0
+  # reso_row_: 1.0
+  # reso_col_: 1.0
   n_row_: 150
   n_col_: 150
 
@@ -54,9 +54,14 @@ LECDManagerConfig:
 # Data path info file and visualization similarity thres
 # 更换数据集修改
 # kitti00
-fpath_sens_gt_pose: "/home/jtcx/ws/src/contour-context/sample_data/ts-sens_pose-kitti00.txt"
-fpath_lidar_bins: "/home/jtcx/ws/src/contour-context/sample_data/ts-lidar_bins-kitti00.txt"
-fpath_outcome_sav: "/home/jtcx/ws/src/contour-context/results/outcome_txt/outcome-kitti00.txt"
+# fpath_sens_gt_pose: "/home/jtcx/ws/src/contour-context/sample_data/ts-sens_pose-kitti00.txt"
+# fpath_lidar_bins: "/home/jtcx/ws/src/contour-context/sample_data/ts-lidar_bins-kitti00.txt"
+# fpath_outcome_sav: "/home/jtcx/ws/src/contour-context/results/outcome_txt/outcome-kitti00.txt"
+# fpath_outcome_sav: "/home/jtcx/remote_control/code/localization/data_pre/result_kitti05.txt"
+# fpath_outcome_sav: "/home/jtcx/remote_control/code/localization/data_pre/result_cc_xuda.txt"
+fpath_outcome_sav: "/home/jtcx/remote_control/code/localization/data_pre/result_lecd_xuda.txt"
+# fpath_outcome_sav: "/home/jtcx/remote_control/code/localization/data_pre/result_cc_kitti00.txt"
+
 
 
 

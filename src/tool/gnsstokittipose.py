@@ -20,23 +20,10 @@ LON_TO_M = 111000 * math.cos(lon_ref_rad)
 lat_ref = gps_df['latitude'][0]
 lon_ref = gps_df['longitude'][0]
 heading_ref = gps_df['heading'][0]
-
-# -------------------------------------------
-# 提取 bag 中雷达数据的时间戳
-# -------------------------------------------
-bag = rosbag.Bag('/home/jtcx/data_set/self/xuda/mapping_2025-03-15-18-30-36.bag')  # 替换成实际 bag 文件名
-lidar_topic = '/lidar_points'  # 替换成雷达 topic
-lidar_timestamps = []
-
-for topic, msg, t in tqdm(bag.read_messages(topics=[lidar_topic]), desc="读取雷达时间戳"):
-    lidar_timestamps.append(t.to_sec())
-
-bag.close()
-
-print(f"提取雷达时间戳 {len(lidar_timestamps)} 个")
+timestamp_ref = gps_df['timestamp'][0]
 
 # 设定初始时间为第一帧的时间戳
-t0 = lidar_timestamps[0]
+t0 = timestamp_ref
 
 # -------------------------------------------
 # 时间同步: 找到最接近的 GPS 时间戳
@@ -55,12 +42,12 @@ def find_nearest_gps_index(lidar_time, gps_times):
 # -------------------------------------------
 pose_list = []
 
-for lidar_time in tqdm(lidar_timestamps, desc="处理位姿同步"):
-    gps_idx = find_nearest_gps_index(lidar_time, gps_timestamps)
+# 遍历 GPS 时间戳
+for gps_idx in tqdm(range(len(gps_timestamps)), desc="处理位姿"):
     gps_row = gps_df.iloc[gps_idx]
 
-    # 计算相对时间戳
-    relative_time = lidar_time - t0  # 以第一帧时间为 0
+    # 计算相对时间戳（以 GPS 首帧为基准）
+    relative_time = gps_timestamps[gps_idx] - t0
 
     # 计算相对平移
     d_lat = (gps_row['latitude'] - lat_ref) * LAT_TO_M
@@ -93,5 +80,5 @@ for lidar_time in tqdm(lidar_timestamps, desc="处理位姿同步"):
 # 保存 Pose 文件
 # -------------------------------------------
 pose_array = np.array(pose_list)
-np.savetxt('/home/jtcx/remote_control/code/localization/data_pre/gtpose/xuda/kitti_pose_synced.txt', pose_array, fmt='%.6f', delimiter=' ')
-print("同步后的位姿文件已生成：kitti_pose_synced.txt")
+np.savetxt('/home/jtcx/remote_control/code/localization/data_pre/gtpose/xuda/gt_pose_xuda.txt', pose_array, fmt='%.6f', delimiter=' ')
+print("同步后的位姿文件已生成：gt_pose_xuda.txt")

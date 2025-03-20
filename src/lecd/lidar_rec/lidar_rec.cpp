@@ -27,7 +27,7 @@ void mqtt_receiver_thread() {
         // 持续接收数据
         std::cout << "Waiting for messages... Press Ctrl+C to exit." << std::endl;
         while (true) {
-            std::this_thread::sleep_for(std::chrono::seconds(1));
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
         }
     } catch (const mqtt::exception& exc) {
         std::cerr << "Error: " << exc.what() << std::endl;

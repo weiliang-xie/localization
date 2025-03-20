@@ -610,7 +610,6 @@ public:
     cv::Rect full_bev_roi(0, 0, bev_.cols, bev_.rows);
 
     // TicToc clk;
-    // makeContourRecursiveHelper(full_bev_roi, cv::Mat1b(1, 1), 0, nullptr);
     // std::cout << "Time makecontour: " << clk.toc() << std::endl;
 
     //lecd —> views
@@ -631,18 +630,27 @@ public:
 
     }
     //keys
+    //layer_keys_ 预设大小
+    for(int j = 0; j < layer_keys_.size(); j++)
+    {
+      for(int i = 0; i < cfg_.piv_firsts_; i++)
+      {
+        RetrievalKey zerokey;
+        zerokey.setZero();
+        layer_keys_[j].emplace_back(zerokey);
+      }
+    }
+
     for(int j = 0; j < pt_lecd_.keys_.size(); j++)
     {
+
       for(auto key_ : pt_lecd_.keys_[j])
-      {
-        RetrievalKey in_layerkeys;
-        in_layerkeys.setZero();          
-        for(int i = 0; i < key_.size(); i++)
+      {     
+        for(int i = 2; i < key_.size(); i++)
         {
-          in_layerkeys(i) = key_[i];
+          layer_keys_[static_cast<int>(key_[0])][static_cast<int>(key_[1])](i - 2) = key_[i];
         }
-          layer_keys_[j].emplace_back(in_layerkeys);
-      }
+      } 
     }
 
 
@@ -980,11 +988,9 @@ public:
 //      }
 //    }
 
-#if SAVE_MID_FILE
-    // save statistics of this scan:
-    std::string fpath = std::string(PJSRCDIR) + "/results/contour_ellipse/contours_orig-" + str_id_ + ".txt";
-    saveContours(fpath, cont_views_);
-#endif
+    // // save statistics of this scan:保存lecd数据
+    // std::string fpath = "/home/jtcx/remote_control/code/localization/data_pre/lecd_data/data_precontours_orig-" + std::to_string(int_id_) + ".txt";
+    // saveContours(fpath, cont_views_);
 
 
     //求删除的网格数占比
@@ -1406,4 +1412,4 @@ public:
 };
 
 
-#endif
+#endif  // CONTOUR_MNG_H

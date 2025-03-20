@@ -6,6 +6,11 @@
 #include "tools/pointcloud_util.h"
 #include "tools/algos.h"
 
+#include <iostream>
+#include <unordered_map>
+#include <array>
+#include <sys/time.h>
+
 template <int dim>
 struct SimpleRMSE
 {
@@ -307,7 +312,7 @@ public:
         // tgt before src
         for (const auto &rec : pred_records)
         {
-            int addr_tgt = lookupNN<int>(rec.id_tgt, assigned_seqs_, 0);
+            int addr_tgt = rec.id_tgt;
             CHECK_GE(addr_tgt, 0);
 
             res_file << rec.tfpn << "\t";
@@ -321,7 +326,7 @@ public:
             }
             else
             {
-                int addr_src = lookupNN<int>(rec.id_src, assigned_seqs_, 0);
+                int addr_src = rec.id_src;
                 CHECK_GE(addr_src, 0);
 
                 res_file << rec.id_tgt << "-" << rec.id_src << "\t";
@@ -375,4 +380,4 @@ public:
                                CandidateScoreEnsemble &thres_ub);
 };
 
-#endif
+#endif  // EVALUATOR_H   

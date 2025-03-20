@@ -416,4 +416,4 @@ struct ContourView
     }
 };
 
-#endif
+#endif  // CONTOUR_H
