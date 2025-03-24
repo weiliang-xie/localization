@@ -8,7 +8,7 @@ import pandas as pd
 # 配置参数
 bag_file = "/home/jtcx/data_set/self/xuda/mapping_2025-03-15-18-30-36.bag"  # 你的.bag文件路径
 lidar_topic = "/lidar_points"  # LiDAR数据话题
-output_folder = "/home/jtcx/remote_control/code/localization/data_pre/lidar-data/xuda"  # 输出bin文件的文件夹
+output_folder = "/home/jtcx/remote_control/code/localization/data_pre/lidar-data/xuda-less-0.5"  # 输出bin文件的文件夹
 gps_df = pd.read_csv('/home/jtcx/remote_control/code/localization/data_pre/gtpose/xuda/gps_data.csv') #gps时间戳和定位信息
 
 

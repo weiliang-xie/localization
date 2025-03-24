@@ -43,6 +43,9 @@ private:
   std::chrono::time_point<std::chrono::steady_clock> start, end;
 };
 
+
+extern std::unordered_map<int, std::array<long, 4>> cp_stamps;    //压缩部分时间戳
+extern std::mutex stamps_mtx;  // 互斥锁
 //这个似乎是完成检测后的评估整理打印class
 class SequentialTimeProfiler {
 protected:
@@ -61,8 +64,6 @@ protected:
   int cnt_loops = 0;
   size_t max_len = 5;   // min name length
   std::string desc = "";  // short description
-
-  std::unordered_map<int, std::array<long, 4>> cp_stamps;    //压缩部分时间戳
 
 public:
 
@@ -250,6 +251,7 @@ public:
     //传入 点云序号 时间戳，时间戳序号
   void pushstamps(int pt_id, long stamp_1, long stamp_2, long stamp_3)
   {
+    std::lock_guard<std::mutex> lock(stamps_mtx); 
     // 通过 id 检索数据
     auto found = cp_stamps.find(pt_id);
     if (found == cp_stamps.end()) {
@@ -262,21 +264,61 @@ public:
     }     
   }
 
-  void compressrecord(int pt_id)
-  {
-    auto found = cp_stamps.find(pt_id);
-    if (found != cp_stamps.end()) {    
-      double dur_;
-      dur_ = (found->second[1] - found->second[0])  > 0 ? (found->second[1] - found->second[0]) / 1000000.0 : 0;
-      record("compress",dur_);
+// 合并stp部分，用于多线程的stp合并
 
-      // dur_ = (found->second[2] - found->second[1])  > 0 ? (found->second[2] - found->second[1]) / 1000000.0 : 0;
-      // record("cp queue",dur_);
+  // //lap合并添加
+  // void addlap(int &add)
+  // {
+  //   cnt_loops += add;
+  // }
 
-      dur_ = (found->second[3] - found->second[1])  > 0 ? (found->second[3] - found->second[1]) / 1000000.0 : 0;
-      record("transmit",dur_);
-    }
+  // int getlap()
+  // {
+  //   return cnt_loops;
+  // }
+
+  //OneLog合并
+  // 合并两个 SequentialTimeProfiler 的日志
+  void addLogs(const SequentialTimeProfiler &other) {
+      //添加lap
+      cnt_loops += other.cnt_loops;
+      // 遍历 other 的 logs，并将其合并到当前对象的 logs 中
+      for (const auto &entry : other.logs) {
+          const std::string &name = entry.first;
+          const OneLog &log = entry.second;
+
+          auto it = logs.find(name);
+          if (it == logs.end()) {
+              // 如果当前 logs 中没有该名称，则直接插入
+              logs[name] = OneLog(static_cast<int>(logs.size()), log.cnt, log.samps);
+              max_len = std::max(max_len, name.length());
+              auto it_again = logs.find(name);
+              it_again->second.autocorrs += log.autocorrs;
+          } else {
+              // 如果已经存在该名称，则合并
+              it->second.cnt += log.cnt;
+              it->second.samps += log.samps;
+              it->second.autocorrs += log.autocorrs;
+          }
+      }
   }
+
+
+  void compressrecord(int pt_id);
+  // {
+  //   auto found = cp_stamps.find(pt_id);
+  //   if (found != cp_stamps.end()) {    
+  //     double dur_;
+  //     dur_ = (found->second[1] - found->second[0])  > 0 ? (found->second[1] - found->second[0]) / 1000000.0 : 0;
+  //     record("compress",dur_);
+
+  //     // dur_ = (found->second[2] - found->second[1])  > 0 ? (found->second[2] - found->second[1]) / 1000000.0 : 0;
+  //     // record("cp queue",dur_);
+
+  //     dur_ = (found->second[3] - found->second[1])  > 0 ? (found->second[3] - found->second[1]) / 1000000.0 : 0;
+  //     record("transmit",dur_);
+  //   }
+  // }
 };
 
 #endif //CONT2_BM_UTIL_H

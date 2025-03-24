@@ -17,8 +17,13 @@
 
 #include "tools/bm_util.h"
 
-// extern std::mutex mtx;  // 互斥锁
+extern std::mutex mtx;  // 互斥锁
 extern SequentialTimeProfiler stp;
+extern thread_local SequentialTimeProfiler thread_stp;
+
+extern std::mutex tree_mtx;  // 互斥锁
+
+
 
 // typedef Eigen::Matrix<KeyFloatType, 4, 1> tree_key_t;
 typedef std::vector<RetrievalKey> my_vector_of_vectors_t;
@@ -837,7 +842,10 @@ public:
                                        (q_keys[seq][2] - key_bounds[2][1]) * (q_keys[seq][2] - key_bounds[2][1]));
 
                     //          layer_db_[ll].layerKNNSearch(q_keys[seq], 100, dist_ub, tmp_res);
-                    layer_db_[ll].layerKNNSearch(q_keys[seq], cfg_.nnk_, dist_ub, tmp_res); // 利用当前anchor的key值进行检索，更新检索返回anchor的id-dist对：tmp_res
+                    {
+                        std::lock_guard<std::mutex> lock(tree_mtx); 
+                        layer_db_[ll].layerKNNSearch(q_keys[seq], cfg_.nnk_, dist_ub, tmp_res); // 利用当前anchor的key值进行检索，更新检索返回anchor的id-dist对：tmp_res
+                    }
                     //          layer_db_[ll].layerKNNSearch(q_keys[seq], 200, 2000.0, tmp_res);
                     t1 += clk.toc();
 
@@ -864,7 +872,7 @@ public:
             }
         }
 
-        stp.record("KNN search");
+        thread_stp.record("KNN search");
 
 
         // find the best ones with fine-tuning:  筛选出最好的匹配对
@@ -874,15 +882,15 @@ public:
 
         // pre_times.pushstamps(q_ptr->getIntID(), 5);
 
-        mtx.lock(); 
+        // mtx.lock(); 
         clk.tic();
-        stp.start();
+        thread_stp.start();
         cand_mng.tidyUpCandidates();
         int num_best_cands = cand_mng.fineOptimize(cfg_.max_fine_opt_, res_cand_ptr, res_corr, res_T);
-        stp.record("L2 opt");
+        thread_stp.record("L2 opt");
         // t5 += clk.toc();
         std::cout << "L2 time consuming: " << clk.toc() << std::endl;
-        mtx.unlock(); 
+        // mtx.unlock(); 
 
         if (num_best_cands)
         {

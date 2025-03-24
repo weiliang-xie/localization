@@ -80,5 +80,5 @@ for gps_idx in tqdm(range(len(gps_timestamps)), desc="处理位姿"):
 # 保存 Pose 文件
 # -------------------------------------------
 pose_array = np.array(pose_list)
-np.savetxt('/home/jtcx/remote_control/code/localization/data_pre/gtpose/xuda/gt_pose_xuda.txt', pose_array, fmt='%.6f', delimiter=' ')
+np.savetxt('/home/jtcx/remote_control/code/localization/data_pre/gtpose/xuda/gt_pose_xuda-less.txt', pose_array, fmt='%.6f', delimiter=' ')
 print("同步后的位姿文件已生成：gt_pose_xuda.txt")

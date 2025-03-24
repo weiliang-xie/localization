@@ -18,6 +18,8 @@
 #define STAMP_NUM 7         //时间戳个数
 
 extern SequentialTimeProfiler stp;
+extern thread_local SequentialTimeProfiler thread_stp;
+
 
 // 定义 MQTT Broker 地址和话题
 const std::string SERVER_ADDRESS{"tcp://8.138.105.82:1883"};
@@ -267,7 +269,7 @@ public:
         : client_(client), sub_topic_(sub_topic), queue_(queue) {}
 
     void message_arrived(mqtt::const_message_ptr msg) override {
-        mtx.lock();
+        // mtx.lock();
         try {
             // 解析消息的 payload
             std::string payload = msg->get_payload();
@@ -282,7 +284,7 @@ public:
 
             //存入接收时间戳
             // pre_times.pushstamps(received_data.pt_seq, 3);
-            stp.pushstamps(received_data.pt_seq, received_data.rec_stamp, received_data.compress_stamp, received_data.tran_stamp);
+            thread_stp.pushstamps(received_data.pt_seq, received_data.rec_stamp, received_data.compress_stamp, received_data.tran_stamp);
 
             //存入队列
             queue_.push(received_data);
@@ -290,7 +292,7 @@ public:
         } catch (const std::exception& e) {
             std::cerr << "Error parsing or processing message: " << e.what() << std::endl;
         }
-        mtx.unlock();
+        // mtx.unlock();
     }
 
     void connected(const std::string& cause) override {

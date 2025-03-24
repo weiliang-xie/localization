@@ -14,9 +14,27 @@
 #include <sensor_msgs/PointCloud2.h>
 #include <pcl_conversions/pcl_conversions.h>
 #include <mutex>
+#include <thread>
+#include <atomic>
+#include <chrono>
 // #include <matplotlibcpp.h>
 
-std::mutex mtx;  // 互斥锁
+std::mutex mtx;
+std::mutex queue_mutex;  // 互斥锁，保证线程安全
+std::mutex stp_mutex;
+std::mutex stamps_mtx;  // 互斥锁
+std::mutex tree_mtx;  // 互斥锁
+std::mutex thread_map_mutex;  // 用于保护共享数据的锁
+
+std::atomic<bool> stop_threads(false); // 用于停止线程
+
+// const int NUM_THREADS = 4;  // 设定线程数量，可以根据 CPU 核心数调整
+const int NUM_THREADS = std::thread::hardware_concurrency();  // 获取 CPU 核心数
+
+thread_local SequentialTimeProfiler thread_stp;
+
+
+std::unordered_map<int, std::array<long, 4>> cp_stamps;    //压缩部分时间戳
 
 // namespace plt = matplotlibcpp;
 
@@ -148,120 +166,232 @@ std::shared_ptr<ContourManager> LECDtoViews(LECD pt_lecd, const ContourManagerCo
     return lecd_ptr;
 }
 
-// 定位线程函数
-void localization_thread()
+void SequentialTimeProfiler::compressrecord(int pt_id)
 {
-    //   ros::NodeHandle nh;
-    //   BatchBinSpinner o(nh); // 这个是主要的数据结构 初始化仅传递一个ros句柄
-    int cnt = 0;
-    int cur_seq = 0;
-    int no_data_cnt = 0;
+    std::lock_guard<std::mutex> lock(stamps_mtx); 
+    auto found = cp_stamps.find(pt_id);
+    if (found != cp_stamps.end())
+    {
+        double dur_;
+        dur_ = (found->second[1] - found->second[0]) > 0 ? (found->second[1] - found->second[0]) / 1000000.0 : 0;
+        thread_stp.record("compress", dur_);  // 修改为 thread_stp 记录时间
 
-    // TODO 读取地图 待添加
+        dur_ = (found->second[3] - found->second[1]) > 0 ? (found->second[3] - found->second[1]) / 1000000.0 : 0;
+        thread_stp.record("transmit", dur_);
+    }
+}
+
+// // 定位线程函数
+// void localization_thread()
+// {
+//     //   ros::NodeHandle nh;
+//     //   BatchBinSpinner o(nh); // 这个是主要的数据结构 初始化仅传递一个ros句柄
+//     int cnt = 0;
+//     int cur_seq = 0;
+//     int no_data_cnt = 0;
+
+//     // TODO 读取地图 待添加
     
 
-    while (true)
+//     while (true)
+//     {
+//         // 判断队列是否为空
+//         if (lecd_queue.is_empty())
+//         {               
+//             std::this_thread::sleep_for(std::chrono::milliseconds(1)); // 模拟处理延迟
+//             if(lecd_queue.is_empty())
+//                 no_data_cnt++;
+
+//             if(no_data_cnt >= 100000)
+//             {
+//                 ptr_evaluator->savePredictionResults(fpath_outcome_sav);
+
+//                 //处理时间耗时
+//                 stp.printScreen(true);      //打印最后的耗时统计
+//                 // std::array<double, STAMP_NUM - 1> avg_times;
+//                 // avg_times = pre_times.avgtimes();
+//                 break;
+//             }
+//             continue;
+//         }else{
+//             no_data_cnt = 0;
+//         }
+
+//         LECD pt_lecd = lecd_queue.pop();
+
+//         // CHECK_EQ(pt_lecd.pt_seq, cur_seq);      //检查点云帧序号
+//         stp.lap(); 
+
+//         //转移车端处理时间戳
+//         // pre_times.pushstamps(pt_lecd.pt_seq, 0, pt_lecd.rec_stamp, pt_lecd.compress_stamp, pt_lecd.tran_stamp);
+//         stp.compressrecord(pt_lecd.pt_seq);
+
+//         // 存储点云信息
+//         LaserScanInfo info_;
+//         info_.seq = pt_lecd.pt_seq;
+//         info_.ts = pt_lecd.time_stamp;
+//         //gt pose
+//         Eigen::Vector3d tmp_trans;
+//         Eigen::Matrix3d tmp_rot_mat;     
+//         Eigen::Quaterniond tmp_rot_q;
+//         Eigen::Isometry3d tmp_tf;
+
+//         tmp_rot_mat = pt_lecd.gt_pose.block<3,3>(0,0);
+//         tmp_trans = pt_lecd.gt_pose.block<3,1>(0,3);
+//         tmp_rot_q = Eigen::Quaterniond(tmp_rot_mat);
+//         tmp_tf.setIdentity();
+//         tmp_tf.rotate(tmp_rot_q);
+//         tmp_tf.pretranslate(tmp_trans); // 完成平移部分和旋转部分处理合并
+//         info_.sens_pose = tmp_tf;
+//         info_.fpath = "x";
+        
+//         ptr_evaluator->pushCurrScanInfo(info_);
+//         ptr_evaluator->loadNewScan();
+
+//         std::cout << "current lecd data index: " << ptr_evaluator->getCurrScanInfo().seq << " nums: " << pt_lecd.lecd_nums << std::endl;
+
+//         // lecd->lecd_views
+//         stp.start();
+//         std::shared_ptr<ContourManager> ptr_cm_tgt = LECDtoViews(pt_lecd, cm_config, cur_seq);
+//         // 定位模块
+//         std::vector<std::pair<int, int>> new_lc_pairs;
+//         std::vector<bool> new_lc_tfp;
+//         std::vector<std::shared_ptr<const ContourManager>> ptr_cands;
+//         std::vector<double> cand_corr;
+//         std::vector<Eigen::Isometry2d> bev_tfs;
+
+//         int has_cand_flag = ptr_contour_db->queryRangedKNN(ptr_cm_tgt, thres_lb_, thres_ub_, ptr_cands, cand_corr, bev_tfs); // 查询检索获取候选
+
+//         CHECK(ptr_cands.size() < 2);
+//         PredictionOutcome pred_res;
+//         if (ptr_cands.empty())
+//           pred_res = ptr_evaluator->addPrediction(ptr_cm_tgt, 0.0);
+//         else {
+//           pred_res = ptr_evaluator->addPrediction(ptr_cm_tgt, cand_corr[0], ptr_cands[0], bev_tfs[0]);  //求解查询帧的prediction outcome
+//           if (pred_res.tfpn == PredictionOutcome::TP || pred_res.tfpn == PredictionOutcome::FP) {       //储存检索回环的帧id
+//             new_lc_pairs.emplace_back(ptr_cm_tgt->getIntID(), ptr_cands[0]->getIntID());
+//             new_lc_tfp.emplace_back(pred_res.tfpn == PredictionOutcome::TP);
+//           }
+//         }
+
+//         // 储存描述符
+//         ptr_contour_db->addScan(ptr_cm_tgt, info_.ts);
+//         ptr_contour_db->pushAndBalance(info_.seq, info_.ts); // 放入检索树
+
+//         //存放完成定位时间戳
+//         // pre_times.pushstamps(pt_lecd.pt_seq, 6);
+        
+//         // 打印时间戳
+//         // std::cout << "index: " << pt_lecd.pt_seq << " stamps: ";
+//         // for(auto& stamp_ : pre_times.stamps[pt_lecd.pt_seq])
+//         // {
+//         //     std::cout << stamp_ << " ";
+//         // }
+//         // std::cout << std::endl;
+
+//         // 统计数据清空
+//         cur_seq++;
+
+//         std::cout << std::endl; // 完成一次识别 打印空行
+//     }
+// }
+
+
+// 多线程处理 `lecd_queue`
+void localization_thread()
+{
+    int no_data_cnt = 0;
+
+    while (!stop_threads)
     {
-        // 判断队列是否为空
-        if (lecd_queue.is_empty())
-        {               
-            std::this_thread::sleep_for(std::chrono::milliseconds(1)); // 模拟处理延迟
-            if(lecd_queue.is_empty())
-                no_data_cnt++;
-
-            if(no_data_cnt >= 100000)
+        LECD pt_lecd;
+        {
+            std::lock_guard<std::mutex> lock(queue_mutex);
+            if (lecd_queue.is_empty())
             {
-                ptr_evaluator->savePredictionResults(fpath_outcome_sav);
-
-                //处理时间耗时
-                stp.printScreen(true);      //打印最后的耗时统计
-                // std::array<double, STAMP_NUM - 1> avg_times;
-                // avg_times = pre_times.avgtimes();
-                break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(1)); // 休眠一段时间避免 CPU 过载
+                no_data_cnt++;
+                if (no_data_cnt >= 15000)  // 如果长时间没有数据，自动退出
+                {
+                    stp.addLogs(thread_stp);
+                    //处理时间耗时
+                    // thread_stp.printScreen(true);      //打印最后的耗时统计
+                    std::cout << std::this_thread::get_id() << "localization thread is over" << std::endl;
+                    return;
+                }
+                continue;
             }
-            continue;
-        }else{
             no_data_cnt = 0;
+            pt_lecd = lecd_queue.pop(); // **线程安全地取出数据**
         }
 
-        LECD pt_lecd = lecd_queue.pop();
+        // **处理点云数据**
+        thread_stp.lap(); 
 
-        // CHECK_EQ(pt_lecd.pt_seq, cur_seq);      //检查点云帧序号
-        stp.lap(); 
+        // **记录时间戳（加锁保护 stp）//转移车端处理时间戳**
+        {
+            std::lock_guard<std::mutex> lock(stp_mutex);
+            thread_stp.compressrecord(pt_lecd.pt_seq);
+        }
 
-        //转移车端处理时间戳
-        // pre_times.pushstamps(pt_lecd.pt_seq, 0, pt_lecd.rec_stamp, pt_lecd.compress_stamp, pt_lecd.tran_stamp);
-        stp.compressrecord(pt_lecd.pt_seq);
-
-        // 存储点云信息
+        // **存储点云信息**
         LaserScanInfo info_;
         info_.seq = pt_lecd.pt_seq;
         info_.ts = pt_lecd.time_stamp;
-        //gt pose
+        
         Eigen::Vector3d tmp_trans;
         Eigen::Matrix3d tmp_rot_mat;     
         Eigen::Quaterniond tmp_rot_q;
         Eigen::Isometry3d tmp_tf;
-
         tmp_rot_mat = pt_lecd.gt_pose.block<3,3>(0,0);
         tmp_trans = pt_lecd.gt_pose.block<3,1>(0,3);
         tmp_rot_q = Eigen::Quaterniond(tmp_rot_mat);
         tmp_tf.setIdentity();
         tmp_tf.rotate(tmp_rot_q);
-        tmp_tf.pretranslate(tmp_trans); // 完成平移部分和旋转部分处理合并
+        tmp_tf.pretranslate(tmp_trans);
         info_.sens_pose = tmp_tf;
         info_.fpath = "x";
-        
+
         ptr_evaluator->pushCurrScanInfo(info_);
         ptr_evaluator->loadNewScan();
 
+
+
         std::cout << "current lecd data index: " << ptr_evaluator->getCurrScanInfo().seq << " nums: " << pt_lecd.lecd_nums << std::endl;
 
-        // lecd->lecd_views
-        stp.start();
-        std::shared_ptr<ContourManager> ptr_cm_tgt = LECDtoViews(pt_lecd, cm_config, cur_seq);
-        // 定位模块
+        thread_stp.start();
+        std::shared_ptr<ContourManager> ptr_cm_tgt = LECDtoViews(pt_lecd, cm_config, info_.seq);
+
+        {
+            std::lock_guard<std::mutex> lock(tree_mtx); 
+            // **储存描述符**
+            ptr_contour_db->addScan(ptr_cm_tgt, info_.ts);
+            ptr_contour_db->pushAndBalance(info_.seq, info_.ts);
+        }
+
         std::vector<std::pair<int, int>> new_lc_pairs;
         std::vector<bool> new_lc_tfp;
         std::vector<std::shared_ptr<const ContourManager>> ptr_cands;
         std::vector<double> cand_corr;
         std::vector<Eigen::Isometry2d> bev_tfs;
 
-        int has_cand_flag = ptr_contour_db->queryRangedKNN(ptr_cm_tgt, thres_lb_, thres_ub_, ptr_cands, cand_corr, bev_tfs); // 查询检索获取候选
+        int has_cand_flag = ptr_contour_db->queryRangedKNN(ptr_cm_tgt, thres_lb_, thres_ub_, ptr_cands, cand_corr, bev_tfs);
 
-        CHECK(ptr_cands.size() < 2);
         PredictionOutcome pred_res;
         if (ptr_cands.empty())
-          pred_res = ptr_evaluator->addPrediction(ptr_cm_tgt, 0.0);
+            pred_res = ptr_evaluator->addPrediction(ptr_cm_tgt, 0.0);
         else {
-          pred_res = ptr_evaluator->addPrediction(ptr_cm_tgt, cand_corr[0], ptr_cands[0], bev_tfs[0]);  //求解查询帧的prediction outcome
-          if (pred_res.tfpn == PredictionOutcome::TP || pred_res.tfpn == PredictionOutcome::FP) {       //储存检索回环的帧id
-            new_lc_pairs.emplace_back(ptr_cm_tgt->getIntID(), ptr_cands[0]->getIntID());
-            new_lc_tfp.emplace_back(pred_res.tfpn == PredictionOutcome::TP);
-          }
+            pred_res = ptr_evaluator->addPrediction(ptr_cm_tgt, cand_corr[0], ptr_cands[0], bev_tfs[0]);
+            if (pred_res.tfpn == PredictionOutcome::TP || pred_res.tfpn == PredictionOutcome::FP) {
+                new_lc_pairs.emplace_back(ptr_cm_tgt->getIntID(), ptr_cands[0]->getIntID());
+                new_lc_tfp.emplace_back(pred_res.tfpn == PredictionOutcome::TP);
+            }
         }
 
-        // 储存描述符
-        ptr_contour_db->addScan(ptr_cm_tgt, info_.ts);
-        ptr_contour_db->pushAndBalance(info_.seq, info_.ts); // 放入检索树
-
-        //存放完成定位时间戳
-        // pre_times.pushstamps(pt_lecd.pt_seq, 6);
-        
-        // 打印时间戳
-        // std::cout << "index: " << pt_lecd.pt_seq << " stamps: ";
-        // for(auto& stamp_ : pre_times.stamps[pt_lecd.pt_seq])
-        // {
-        //     std::cout << stamp_ << " ";
-        // }
-        // std::cout << std::endl;
-
-        // 统计数据清空
-        cur_seq++;
-
-        std::cout << std::endl; // 完成一次识别 打印空行
+        std::cout << std::endl;
     }
 }
+
 
 int main(int argc, char **argv)
 {
@@ -276,11 +406,28 @@ int main(int argc, char **argv)
     stp = SequentialTimeProfiler(fpath_outcome_sav);    //初始化顺序时间档案器
     // 创建 MQTT 接收线程
     std::thread mqtt_thread(mqtt_receiver_thread);
-    // 创建定位线程
-    std::thread localization_thread_instance(localization_thread);
+    // // 创建定位线程
+    // std::thread localization_thread_instance(localization_thread);
+    // **创建多个定位线程**
+    std::vector<std::thread> workers;
+    for (int i = 0; i < NUM_THREADS; i++)
+    {
+        workers.emplace_back(localization_thread);
+    }
+
+    // **等待所有定位线程完成**
+    for (auto &worker : workers)
+    {
+        worker.join();
+    }
+
+
+    ptr_evaluator->savePredictionResults(fpath_outcome_sav);
+    stp.printScreen(true);
+    // localization_thread_instance.join();
+
     // 等待线程完成（实际上会一直运行）
     mqtt_thread.join();
-    localization_thread_instance.join();
 
     return 0;
 }

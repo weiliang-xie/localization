@@ -289,7 +289,7 @@ while 1:
     #去除异常点
     # 设置合理的速度（单位：m/s）
     MAX_VELOCITY = 2  # 可以根据实际情况调整
-    MIN_VELOCITY = 0.3  # 可以根据实际情况调整
+    MIN_VELOCITY = 0.5  # 可以根据实际情况调整  #0.3-8454  0.5-4308
     # 计算相邻点之间的位移和时间间隔
     dx = np.diff(utm_x_list)  # X 方向的位移
     dy = np.diff(utm_y_list)  # Y 方向的位移
