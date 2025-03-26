@@ -72,7 +72,7 @@ struct ECD {
     float vol3_mean_{};     //高度均值 用于统计数据计算中
     bool ecc_feat_ = false;   // eccentricity large enough (with enough cell count)   椭圆有效（足够大，离心率足够大）判断    
 
-    //CC 填充 /LECD
+    // // CC 填充 /LECD
     // V2F CC_used_data;
 
     // 为 ECD 定义序列化函数

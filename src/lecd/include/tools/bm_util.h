@@ -16,6 +16,10 @@
 #include <map>
 #include <utility>
 #include <sys/time.h>
+#include <iostream>
+#include <fstream>
+
+
 
 class TicToc {
 public:
@@ -53,10 +57,15 @@ protected:
     int idx{}, cnt{};
     double samps{};
     double autocorrs{};
+    std::vector<double> all_samps;
+
 
     OneLog() = default;
 
-    explicit OneLog(int i, int a, double b) : idx(i), cnt(a), samps(b), autocorrs(b * b) {}
+    explicit OneLog(int i, int a, double b) : idx(i), cnt(a), samps(b), autocorrs(b * b) {all_samps.emplace_back(b);}
+    
+    explicit OneLog(int i, int a, double b, std::vector<double> al_samps) : idx(i), cnt(a), samps(b), autocorrs(b * b) 
+    {all_samps.insert(all_samps.end(), al_samps.begin(), al_samps.end());}
   };
 
   TicToc clk;
@@ -100,6 +109,7 @@ public:
       it->second.cnt++;
       it->second.samps += dt;   //求当前步骤在每次循环的时间和
       it->second.autocorrs += dt * dt;
+      it->second.all_samps.emplace_back(dt);
     }
     clk.tic();  // auto reset, useful for sequential timing.
   }
@@ -133,6 +143,7 @@ public:
       it->second.cnt++;
       it->second.samps += dt_dur;   //求当前步骤在每次循环的时间和
       it->second.autocorrs += dt_dur * dt_dur;
+      it->second.all_samps.emplace_back(dt_dur);
     }
     clk.tic();  // auto reset, useful for sequential timing.
   }
@@ -240,6 +251,45 @@ public:
     std::fclose(fp);
   }
 
+  void SaveConsumingTime(const std::string &fpath) const
+  {
+    std::vector<std::pair<std::string, OneLog>> vec_consum(logs.begin(), logs.end());
+    
+    std::fstream res_file(fpath, std::ios::out);
+    if (res_file.rdstate() != std::ifstream::goodbit)
+    {
+        std::cerr << "Error opening " << fpath << std::endl;
+        return;
+    }
+    std::sort(vec_consum.begin(), vec_consum.end(),
+              [&](const std::pair<std::string, OneLog> &e1, const std::pair<std::string, OneLog> &e2) {
+                return e1.second.all_samps.size() > e2.second.all_samps.size();
+              });
+    int nums = vec_consum[0].second.all_samps.size();
+    std::cout << "logs size: " << vec_consum.size() << " all samps size: " << nums << std::endl;
+
+    for(const auto &log_ : vec_consum)
+    {
+      // std::cout << log_.first << "\t";
+
+      res_file << log_.first << "\t";
+    }
+    res_file << "\n";
+    // std::cout << std::endl;
+
+    for(int i = 0; i < nums; i++)
+    {
+      for(const auto &log_ : vec_consum)
+      {
+        res_file << log_.second.all_samps[i] << "\t";
+      }      
+      res_file << "\n";
+    }
+
+    res_file.close();
+  }
+
+
   //ntp时间戳部分，用于接收队列前储存ntp时间戳
   long getCurrentStamp(){
       struct timeval tv;
@@ -290,7 +340,7 @@ public:
           auto it = logs.find(name);
           if (it == logs.end()) {
               // 如果当前 logs 中没有该名称，则直接插入
-              logs[name] = OneLog(static_cast<int>(logs.size()), log.cnt, log.samps);
+              logs[name] = OneLog(static_cast<int>(logs.size()), log.cnt, log.samps, log.all_samps);
               max_len = std::max(max_len, name.length());
               auto it_again = logs.find(name);
               it_again->second.autocorrs += log.autocorrs;
@@ -299,6 +349,7 @@ public:
               it->second.cnt += log.cnt;
               it->second.samps += log.samps;
               it->second.autocorrs += log.autocorrs;
+              it->second.all_samps.insert(it->second.all_samps.end(), log.all_samps.begin(), log.all_samps.end());
           }
       }
   }

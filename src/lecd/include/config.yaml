@@ -61,11 +61,14 @@ LECDManagerConfig:
 # fpath_outcome_sav: "/home/jtcx/ws/src/contour-context/results/outcome_txt/outcome-kitti00.txt"
 # fpath_outcome_sav: "/home/jtcx/remote_control/code/localization/data_pre/result_kitti05.txt"
 # fpath_outcome_sav: "/home/jtcx/remote_control/code/localization/data_pre/result_cc_xuda.txt"
-fpath_outcome_sav: "/home/jtcx/remote_control/code/localization/data_pre/result_lecd_xuda.txt"
+# fpath_outcome_sav: "/home/jtcx/remote_control/code/localization/data_pre/result/result_cc_xuda.txt"
+fpath_outcome_sav: "/home/jtcx/remote_control/code/localization/data_pre/result/result_lecd_xuda.txt"
 # fpath_outcome_sav: "/home/jtcx/remote_control/code/localization/data_pre/result_cc_kitti00.txt"
 
+# fpath_outcome_sav_consum: "/home/jtcx/remote_control/code/localization/data_pre/result/result_cc_xuda_consum_time.txt"
+fpath_outcome_sav_consum: "/home/jtcx/remote_control/code/localization/data_pre/result/result_lecd_xuda_consum_time.txt"
 
-
+thread_timeout_cnt: 15000
 
 correlation_thres: 0.64928  # sim score above this value will be plotted as positive  //相似度评分阈值
 
@@ -87,10 +90,8 @@ thres_ub_: # upper boundary
   i_indiv_sim: 6
   i_orie_sim: 6
   correlation: 0.75
-  area_perc: 0.15
-  neg_est_dist: -5.0
+  area_perc: 0.15#include <fstream>
 
-#####################################################
 #
 #GMMOptConfig: # hardcoded
 

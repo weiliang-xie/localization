@@ -33,6 +33,8 @@ const int NUM_THREADS = std::thread::hardware_concurrency();  // 获取 CPU 核�
 
 thread_local SequentialTimeProfiler thread_stp;
 
+int thread_timeout_cnt;     //线程超时结束阈值
+
 
 std::unordered_map<int, std::array<long, 4>> cp_stamps;    //压缩部分时间戳
 
@@ -50,6 +52,7 @@ ContourManagerConfig cm_config;
 CandidateScoreEnsemble thres_lb_, thres_ub_; // check thresholds variable query parameters 查询阈值 分上界下界
 
 std::string fpath_outcome_sav;
+std::string fpath_outcome_sav_consum;
 pcl::PointXYZRGB vec2point(const Eigen::Vector3d &vec, std::vector<std::uint8_t> &rgb)
 {
     pcl::PointXYZRGB pi;
@@ -155,6 +158,8 @@ void loadConfig(const std::string &config_fpath, std::string &sav_path)
     yl.loadOneConfig({"LECDManagerConfig", "dist_firsts_"}, cm_config.dist_firsts_);
     yl.loadOneConfig({"LECDManagerConfig", "roi_radius_"}, cm_config.roi_radius_);
     yl.loadOneConfig({"fpath_outcome_sav"}, sav_path);
+    yl.loadOneConfig({"fpath_outcome_sav_consum"}, fpath_outcome_sav_consum);
+    yl.loadOneConfig({"thread_timeout_cnt"}, thread_timeout_cnt);
 
     yl.close();
 }
@@ -311,7 +316,7 @@ void localization_thread()
             {
                 std::this_thread::sleep_for(std::chrono::milliseconds(1)); // 休眠一段时间避免 CPU 过载
                 no_data_cnt++;
-                if (no_data_cnt >= 15000)  // 如果长时间没有数据，自动退出
+                if (no_data_cnt >= thread_timeout_cnt)  // 如果长时间没有数据，自动退出
                 {
                     stp.addLogs(thread_stp);
                     //处理时间耗时
@@ -424,6 +429,8 @@ int main(int argc, char **argv)
 
     ptr_evaluator->savePredictionResults(fpath_outcome_sav);
     stp.printScreen(true);
+    // std::string fpath_outcome_sav_consum = "/home/jtcx/remote_control/code/localization/data_pre/result/result_cc_xuda_consum_time.txt";
+    stp.SaveConsumingTime(fpath_outcome_sav_consum);
     // localization_thread_instance.join();
 
     // 等待线程完成（实际上会一直运行）

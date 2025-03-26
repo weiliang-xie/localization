@@ -118,9 +118,11 @@ def get_points_ours2(fp_gt_sens_poses, fp_outcome):
             est_line = [eval(line_info[2]), 0, 0, idx_curr]
             if pairing[1] != 'x':
                 idx_best = int(pairing[1])
-                if np.linalg.norm(gt_pose[idx_curr].reshape(3, 4)[:, 3] -
-                                  gt_pose[idx_best].reshape(3, 4)[:, 3]) < thres_dist:
+                dist = np.linalg.norm(gt_pose[idx_curr].reshape(3, 4)[:, 3] -
+                                  gt_pose[idx_best].reshape(3, 4)[:, 3])
+                if dist < thres_dist:
                     est_line[1] = 1
+                    # print("current id: %d, search id: %d, dist: %f" % (int(idx_curr), int(idx_best), dist))
 
                 # 3. if the overall is P
             est_line[2] = gt_positive[idx_curr]
@@ -166,7 +168,7 @@ def get_points_ours2(fp_gt_sens_poses, fp_outcome):
         file_name_without_extension = os.path.splitext(os.path.basename(fp_outcome))[0]
         file_name_without_extension = file_name_without_extension + ".csv"
         # 定义新的文件夹路径
-        new_directory = "/home/jtcx/ws/src/contour-context/results/pr_csv/"    
+        new_directory = "/home/jtcx/remote_control/code/localization/data_pre/result/"    
         # 拼接新的文件路径
         new_file_path = os.path.join(new_directory, file_name_without_extension)
         np.savetxt(new_file_path, all_data, delimiter=',', fmt='%.5f')
@@ -249,8 +251,8 @@ if __name__ == "__main__":
     #更换数据集修改
     #xuda
     file_gt_sens_poses = "/home/jtcx/remote_control/code/localization/data_pre/gtpose/xuda/gt_pose_xuda-less.txt"
-    file_outcome = "/home/jtcx/remote_control/code/localization/data_pre/result_lecd_xuda.txt"
-    file_outcome_bl = "/home/jtcx/remote_control/code/localization/data_pre/result_lecd_xuda.txt"
+    file_outcome = "/home/jtcx/remote_control/code/localization/data_pre/result/result_lecd_xuda.txt"
+    file_outcome_bl = "/home/jtcx/remote_control/code/localization/data_pre/result/result_cc_xuda.txt"
 
 
 

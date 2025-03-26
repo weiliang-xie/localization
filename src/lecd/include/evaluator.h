@@ -144,7 +144,7 @@ public:
             if (info_.ts < it_slow.ts + min_time_excl)
                 break;
             double dist = (info_.sens_pose.translation() - it_slow.sens_pose.translation()).norm();
-            if (dist < 5.0)
+            if (dist < 10.0)
             {
                 if (!info_.has_gt_positive_lc)
                 {
@@ -230,7 +230,7 @@ public:
             double gt_trans_norm3d = (laser_info_[addr_src].sens_pose.translation() -
                                       laser_info_[addr_tgt].sens_pose.translation())
                                          .norm();
-            printf(" Dist: Est2d: %.2f; GT3d: %.2f\n", est_trans_norm2d, gt_trans_norm3d);
+            printf("Current id: %d; Search id: %d, Dist: Est2d: %.2f; GT3d: %.2f\n", addr_tgt, addr_src, est_trans_norm2d, gt_trans_norm3d);
 
             double err_vec[3] = {tf_err.translation().x(), tf_err.translation().y(), std::atan2(tf_err(1, 0), tf_err(0, 0))};
             printf(" Error: dx=%f, dy=%f, dtheta=%f\n", err_vec[0], err_vec[1], err_vec[2]);
@@ -238,7 +238,7 @@ public:
             memcpy(curr_res.est_err, err_vec, sizeof(err_vec)); // 保存
             if (est_corr >= sim_thres)
             {
-                if (laser_info_[addr_tgt].has_gt_positive_lc && gt_trans_norm3d < 5.0)
+                if (laser_info_[addr_tgt].has_gt_positive_lc && gt_trans_norm3d < 10.0)
                 { // TP   //这里是真值标准
                     curr_res.tfpn = PredictionOutcome::TP;
 
